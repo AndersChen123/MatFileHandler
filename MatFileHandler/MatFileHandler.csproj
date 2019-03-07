@@ -26,12 +26,13 @@
     <AdditionalFiles Include="..\stylecop.json" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="HDF.PInvoke.NETStandard" Version="1.10.200" />
     <PackageReference Include="StyleCop.Analyzers" Version="1.1.0-beta004">
-            <PrivateAssets>All</PrivateAssets>
+      <PrivateAssets>All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="System.ValueTuple" Version="4.4.0" Condition="'$(TargetFramework)' == 'net461'" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\LICENSE.md" Pack="true" PackagePath=""/>
+    <None Include="..\LICENSE.md" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

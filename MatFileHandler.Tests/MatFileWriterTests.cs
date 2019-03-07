@@ -27,7 +27,7 @@ namespace MatFileHandler.Tests
             array[1] = 17.0;
             var variable = builder.NewVariable("test", array);
             var actual = builder.NewFile(new[] { variable });
-            MatCompareWithTestData("good", "double-array", actual);
+            MatCompareWithLevel5TestData("double-array", actual);
         }
 
         /// <summary>
@@ -65,7 +65,7 @@ namespace MatFileHandler.Tests
             var int64 = builder.NewVariable("int64_", builder.NewArray(CommonData.Int64Limits, 1, 2));
             var uint64 = builder.NewVariable("uint64_", builder.NewArray(CommonData.UInt64Limits, 1, 2));
             var actual = builder.NewFile(new[] { int16, int32, int64, int8, uint16, uint32, uint64, uint8 });
-            MatCompareWithTestData("good", "limits", actual);
+            MatCompareWithLevel5TestData("limits", actual);
         }
 
         /// <summary>
@@ -104,7 +104,7 @@ namespace MatFileHandler.Tests
                 int16Complex, int32Complex, int64Complex, int8Complex,
                 uint16Complex, uint32Complex, uint64Complex, uint8Complex,
             });
-            MatCompareWithTestData("good", "limits_complex", actual);
+            MatCompareWithLevel5TestData("limits_complex", actual);
         }
 
         /// <summary>
@@ -116,7 +116,7 @@ namespace MatFileHandler.Tests
             var builder = new DataBuilder();
             var s = builder.NewVariable("s", builder.NewCharArray("🍆"));
             var actual = builder.NewFile(new[] { s });
-            MatCompareWithTestData("good", "unicode-wide", actual);
+            MatCompareWithLevel5TestData("unicode-wide", actual);
         }
 
         /// <summary>
@@ -133,7 +133,7 @@ namespace MatFileHandler.Tests
             sparseArray[2, 3] = 4;
             var sparse = builder.NewVariable("sparse_", sparseArray);
             var actual = builder.NewFile(new[] { sparse });
-            MatCompareWithTestData("good", "sparse", actual);
+            MatCompareWithLevel5TestData("sparse", actual);
         }
 
         /// <summary>
@@ -161,7 +161,7 @@ namespace MatFileHandler.Tests
             structure["y", 1, 2] = builder.NewEmpty();
             var struct_ = builder.NewVariable("struct_", structure);
             var actual = builder.NewFile(new[] { struct_ });
-            MatCompareWithTestData("good", "struct", actual);
+            MatCompareWithLevel5TestData("struct", actual);
         }
 
         /// <summary>
@@ -174,7 +174,7 @@ namespace MatFileHandler.Tests
             var logical = builder.NewArray(new[] { true, false, true, true, false, true }, 2, 3);
             var logicalVariable = builder.NewVariable("logical_", logical);
             var actual = builder.NewFile(new[] { logicalVariable });
-            MatCompareWithTestData("good", "logical", actual);
+            MatCompareWithLevel5TestData("logical", actual);
         }
 
         /// <summary>
@@ -191,7 +191,7 @@ namespace MatFileHandler.Tests
             array[1, 2] = true;
             var sparseLogical = builder.NewVariable("sparse_logical", array);
             var actual = builder.NewFile(new[] { sparseLogical });
-            MatCompareWithTestData("good", "sparse_logical", actual);
+            MatCompareWithLevel5TestData("sparse_logical", actual);
         }
 
         /// <summary>
@@ -207,7 +207,7 @@ namespace MatFileHandler.Tests
             array[1, 1] = 0.5 + Complex.ImaginaryOne;
             var sparseComplex = builder.NewVariable("sparse_complex", array);
             var actual = builder.NewFile(new[] { sparseComplex });
-            MatCompareWithTestData("good", "sparse_complex", actual);
+            MatCompareWithLevel5TestData("sparse_complex", actual);
         }
 
         /// <summary>
@@ -220,7 +220,7 @@ namespace MatFileHandler.Tests
             var array = builder.NewArray(new double[] { 1, 3, 5 }, 1, 3);
             var global = builder.NewVariable("global_", array, true);
             var actual = builder.NewFile(new[] { global });
-            MatCompareWithTestData("good", "global", actual);
+            MatCompareWithLevel5TestData("global", actual);
         }
 
         private static AbstractTestDataFactory<IMatFile> GetMatTestData(string factoryName) =>
@@ -396,6 +396,11 @@ namespace MatFileHandler.Tests
                 var actualRead = reader.Read();
                 CompareMatFiles(expected, actualRead);
             }
+        }
+
+        private void MatCompareWithLevel5TestData(string testName, IMatFile actual)
+        {
+            MatCompareWithTestData("level5", testName, actual);
         }
 
         private void MatCompareWithTestData(string factoryName, string testName, IMatFile actual)
