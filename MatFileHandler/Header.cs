@@ -13,12 +13,15 @@ namespace MatFileHandler
     /// </summary>
     internal class Header
     {
-        private Header(string text, long subsystemDataOffset, int version)
+        private Header(byte[] rawBytes, string text, long subsystemDataOffset, int version)
         {
+            RawBytes = rawBytes;
             Text = text;
             SubsystemDataOffset = subsystemDataOffset;
             Version = version;
         }
+
+        public byte[] RawBytes { get; }
 
         /// <summary>
         /// Gets the header text.
@@ -55,7 +58,7 @@ namespace MatFileHandler
                 platform = platform.Remove(length);
             }
             var text = $"MATLAB 5.0 MAT-file, Platform: {platform}, Created on: {dateTime}{padding}";
-            return new Header(text, 0, 256);
+            return new Header(null, text, 0, 256);
         }
 
         /// <summary>
@@ -65,18 +68,26 @@ namespace MatFileHandler
         /// <returns>The header read.</returns>
         public static Header Read(BinaryReader reader)
         {
-            var textBytes = reader.ReadBytes(116);
-            var text = System.Text.Encoding.UTF8.GetString(textBytes);
-            var subsystemDataOffsetBytes = reader.ReadBytes(8);
-            var subsystemDataOffset = BitConverter.ToInt64(subsystemDataOffsetBytes, 0);
-            var version = reader.ReadInt16();
-            var endian = reader.ReadInt16();
-            var isLittleEndian = endian == 19785;
-            if (!isLittleEndian)
+            var rawBytes = reader.ReadBytes(128);
+            using (var stream = new MemoryStream(rawBytes))
             {
-                throw new NotSupportedException("Big-endian files are not supported.");
+                using (var newReader = new BinaryReader(stream))
+                {
+                    var textBytes = newReader.ReadBytes(116);
+                    var text = System.Text.Encoding.UTF8.GetString(textBytes);
+                    var subsystemDataOffsetBytes = newReader.ReadBytes(8);
+                    var subsystemDataOffset = BitConverter.ToInt64(subsystemDataOffsetBytes, 0);
+                    var version = newReader.ReadInt16();
+                    var endian = newReader.ReadInt16();
+                    var isLittleEndian = endian == 19785;
+                    if (!isLittleEndian)
+                    {
+                        throw new NotSupportedException("Big-endian files are not supported.");
+                    }
+
+                    return new Header(rawBytes, text, subsystemDataOffset, version);
+                }
             }
-            return new Header(text, subsystemDataOffset, version);
         }
 
         private static string GetOperatingSystem()

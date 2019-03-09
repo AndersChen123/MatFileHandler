@@ -29,7 +29,7 @@ namespace MatFileHandler
                 using (var reader = new BinaryReader(stream))
                 {
                     reader.ReadBytes(8);
-                    rawVariables = MatFileReader.ReadRawVariables(reader, -1, subsystemData);
+                    rawVariables = MatFileLevel5Reader.ReadRawVariables(reader, -1, subsystemData);
                 }
             }
 
