@@ -14,11 +14,11 @@ steps:
   displayName: 'dotnet build $(buildConfiguration)'
 
 - task: DotNetCoreCLI@2
-  displayName: 'dotnet test $(buildConfiguration)'
+  displayName: 'dotnet test $(buildConfiguration) (win-x64)'
   inputs:
     command: test
     projects: '**/*Tests/*.csproj'
-    arguments: '--configuration $(buildConfiguration)'
+    arguments: '--configuration $(buildConfiguration) --runtime win-x64'
     
 - task: DotNetCoreCLI@2
   inputs:
