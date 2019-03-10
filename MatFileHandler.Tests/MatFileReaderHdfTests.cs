@@ -1,5 +1,6 @@
 ﻿using NUnit.Framework;
 using System.IO;
+using System.Numerics;
 
 namespace MatFileHandler.Tests
 {
@@ -69,6 +70,32 @@ namespace MatFileHandler.Tests
         }
 
         /// <summary>
+        /// Test reading a two-dimensional complex array.
+        /// </summary>
+        [Test]
+        public void TestComplexMatrix()
+        {
+            var matFile = ReadHdfTestFile("matrix_complex");
+            var matrix = matFile["matrix"].Value as IArrayOf<Complex>;
+            Assert.That(matrix.Dimensions, Is.EqualTo(new[] { 3, 2 }));
+            Assert.That(matrix.ConvertToComplexArray(), Is.EqualTo(new[]
+            {
+                new Complex(1.0, 4.0),
+                new Complex(3.0, 1.0),
+                new Complex(5.0, 0.25),
+                new Complex(2.0, 2.0),
+                new Complex(4.0, 0.5),
+                new Complex(6.0, 0.125),
+            }));
+            Assert.That(matrix[0, 0], Is.EqualTo(new Complex(1.0, 4.0)));
+            Assert.That(matrix[0, 1], Is.EqualTo(new Complex(2.0, 2.0)));
+            Assert.That(matrix[1, 0], Is.EqualTo(new Complex(3.0, 1.0)));
+            Assert.That(matrix[1, 1], Is.EqualTo(new Complex(4.0, 0.5)));
+            Assert.That(matrix[2, 0], Is.EqualTo(new Complex(5.0, 0.25)));
+            Assert.That(matrix[2, 1], Is.EqualTo(new Complex(6.0, 0.125)));
+        }
+
+        /// <summary>
         /// Test reading lower and upper limits of integer data types.
         /// </summary>
         [Test]
@@ -100,6 +127,51 @@ namespace MatFileHandler.Tests
 
             array = matFile["uint64_"].Value;
             CheckLimits(array as IArrayOf<ulong>, CommonData.UInt64Limits);
+        }
+
+        /// <summary>
+        /// Test writing lower and upper limits of integer-based complex data types.
+        /// </summary>
+        [Test]
+        public void TestComplexLimits()
+        {
+            var matFile = ReadHdfTestFile("limits_complex");
+            IArray array;
+            array = matFile["int8_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<sbyte>>, CommonData.Int8Limits);
+            Assert.That(
+                array.ConvertToComplexArray(),
+                Is.EqualTo(new[] { -128.0 + (127.0 * Complex.ImaginaryOne), 127.0 - (128.0 * Complex.ImaginaryOne) }));
+
+            array = matFile["uint8_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<byte>>, CommonData.UInt8Limits);
+
+            array = matFile["int16_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<short>>, CommonData.Int16Limits);
+
+            array = matFile["uint16_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<ushort>>, CommonData.UInt16Limits);
+
+            array = matFile["int32_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<int>>, CommonData.Int32Limits);
+
+            array = matFile["uint32_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<uint>>, CommonData.UInt32Limits);
+
+            array = matFile["int64_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<long>>, CommonData.Int64Limits);
+
+            array = matFile["uint64_complex"].Value;
+            CheckComplexLimits(array as IArrayOf<ComplexOf<ulong>>, CommonData.UInt64Limits);
+        }
+
+        private static void CheckComplexLimits<T>(IArrayOf<ComplexOf<T>> array, T[] limits)
+            where T : struct
+        {
+            Assert.That(array, Is.Not.Null);
+            Assert.That(array.Dimensions, Is.EqualTo(new[] { 1, 2 }));
+            Assert.That(array[0], Is.EqualTo(new ComplexOf<T>(limits[0], limits[1])));
+            Assert.That(array[1], Is.EqualTo(new ComplexOf<T>(limits[1], limits[0])));
         }
 
         private static void CheckLimits<T>(IArrayOf<T> array, T[] limits)

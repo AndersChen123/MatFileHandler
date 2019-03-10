@@ -393,6 +393,38 @@ namespace MatFileHandler
             var numberOfElements = dims.NumberOfElements();
             var dataSize = numberOfElements * SizeOfArrayElement(arrayType);
             var storageSize = (int)H5D.get_storage_size(datasetId);
+            var dataSetType = H5D.get_type(datasetId);
+            var dataSetTypeClass = H5T.get_class(dataSetType);
+            var isCompound = dataSetTypeClass == H5T.class_t.COMPOUND;
+            if (isCompound)
+            {
+                var h5Type = H5tTypeFromArrayType(arrayType);
+                var h5Size = H5T.get_size(h5Type);
+                var h5tComplexReal = H5T.create(H5T.class_t.COMPOUND, h5Size);
+                H5T.insert(h5tComplexReal, "real", IntPtr.Zero, h5Type);
+                var realData = ReadDataset(datasetId, h5tComplexReal, dataSize);
+                var convertedRealData = ConvertDataToProperType<T>(realData, arrayType);
+                var h5tComplexImaginary = H5T.create(H5T.class_t.COMPOUND, h5Size);
+                H5T.insert(h5tComplexImaginary, "imag", IntPtr.Zero, h5Type);
+                var imaginaryData = ReadDataset(datasetId, h5tComplexImaginary, dataSize);
+                var convertedImaginaryData = ConvertDataToProperType<T>(imaginaryData, arrayType);
+                if (arrayType == ArrayType.MxDouble)
+                {
+                    var complexData =
+                        (convertedRealData as double[])
+                            .Zip(convertedImaginaryData as double[], (x, y) => new Complex(x, y))
+                            .ToArray();
+                    return new HdfNumericalArrayOf<Complex>(dims, complexData);
+                }
+                else
+                {
+                    var complexData =
+                        convertedRealData
+                            .Zip(convertedImaginaryData, (x, y) => new ComplexOf<T>(x, y))
+                            .ToArray();
+                    return new HdfNumericalArrayOf<ComplexOf<T>>(dims, complexData);
+                }
+            }
             if (dataSize != storageSize)
             {
                 throw new Exception("Data size mismatch.");
