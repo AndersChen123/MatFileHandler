@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -8,6 +9,23 @@ using HDF.PInvoke;
 
 namespace MatFileHandler
 {
+    internal enum HdfMatlabClass
+    {
+        MEmpty,
+        MChar,
+        MInt8,
+        MUInt8,
+        MInt16,
+        MUInt16,
+        MInt32,
+        MUInt32,
+        MInt64,
+        MUInt64,
+        MSingle,
+        MDouble,
+        MCell,
+    }
+
     internal class HdfArray : IArray
     {
         /// <summary>
@@ -47,6 +65,25 @@ namespace MatFileHandler
 
         /// <inheritdoc />
         public bool IsEmpty => Dimensions.Length == 0;
+    }
+
+    internal class HdfCellArray : HdfArray, ICellArray
+    {
+        public HdfCellArray(int[] dimensions, IEnumerable<IArray> elements)
+            : base(dimensions)
+        {
+            Data = elements.ToArray();
+        }
+
+        /// <inheritdoc />
+        public IArray[] Data { get; }
+
+        /// <inheritdoc />
+        public IArray this[params int[] indices]
+        {
+            get => Data[Dimensions.DimFlatten(indices)];
+            set => Data[Dimensions.DimFlatten(indices)] = value;
+        }
     }
 
     /// <summary>
@@ -174,6 +211,139 @@ namespace MatFileHandler
         private string StringData { get; set; }
     }
 
+    internal class HdfStructureArray : HdfArray, IStructureArray
+    {
+        public HdfStructureArray(
+            int[] dimensions,
+            Dictionary<string, List<IArray>> fields)
+            : base(dimensions)
+        {
+            Fields = fields;
+        }
+
+        /// <inheritdoc />
+        public IEnumerable<string> FieldNames => Fields.Keys;
+
+        /// <summary>
+        /// Gets null: not implemented.
+        /// </summary>
+        public IReadOnlyDictionary<string, IArray>[] Data => null;
+
+        /// <summary>
+        /// Gets a dictionary that maps field names to lists of values.
+        /// </summary>
+        internal Dictionary<string, List<IArray>> Fields { get; }
+
+        /// <inheritdoc />
+        public IArray this[string field, params int[] list]
+        {
+            get => Fields[field][Dimensions.DimFlatten(list)];
+            set => Fields[field][Dimensions.DimFlatten(list)] = value;
+        }
+
+        /// <inheritdoc />
+        IReadOnlyDictionary<string, IArray> IArrayOf<IReadOnlyDictionary<string, IArray>>.this[params int[] list]
+        {
+            get => ExtractStructure(Dimensions.DimFlatten(list));
+            set => throw new NotSupportedException(
+                "Cannot set structure elements via this[params int[]] indexer. Use this[string, int[]] instead.");
+        }
+
+        private IReadOnlyDictionary<string, IArray> ExtractStructure(int i)
+        {
+            return new HdfStructureArrayElement(this, i);
+        }
+
+        /// <summary>
+        /// Provides access to an element of a structure array by fields.
+        /// </summary>
+        internal class HdfStructureArrayElement : IReadOnlyDictionary<string, IArray>
+        {
+            /// <summary>
+            /// Initializes a new instance of the <see cref="HdfStructureArrayElement"/> class.
+            /// </summary>
+            /// <param name="parent">Parent structure array.</param>
+            /// <param name="index">Index in the structure array.</param>
+            internal HdfStructureArrayElement(HdfStructureArray parent, int index)
+            {
+                Parent = parent;
+                Index = index;
+            }
+
+            /// <summary>
+            /// Gets the number of fields.
+            /// </summary>
+            public int Count => Parent.Fields.Count;
+
+            /// <summary>
+            /// Gets a list of all fields.
+            /// </summary>
+            public IEnumerable<string> Keys => Parent.Fields.Keys;
+
+            /// <summary>
+            /// Gets a list of all values.
+            /// </summary>
+            public IEnumerable<IArray> Values => Parent.Fields.Values.Select(array => array[Index]);
+
+            private HdfStructureArray Parent { get; }
+
+            private int Index { get; }
+
+            /// <summary>
+            /// Gets the value of a given field.
+            /// </summary>
+            /// <param name="key">Field name.</param>
+            /// <returns>The corresponding value.</returns>
+            public IArray this[string key] => Parent.Fields[key][Index];
+
+            /// <summary>
+            /// Enumerates fieldstructure/value pairs of the dictionary.
+            /// </summary>
+            /// <returns>All field/value pairs in the structure.</returns>
+            public IEnumerator<KeyValuePair<string, IArray>> GetEnumerator()
+            {
+                foreach (var field in Parent.Fields)
+                {
+                    yield return new KeyValuePair<string, IArray>(field.Key, field.Value[Index]);
+                }
+            }
+
+            /// <summary>
+            /// Enumerates field/value pairs of the structure.
+            /// </summary>
+            /// <returns>All field/value pairs in the structure.</returns>
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
+
+            /// <summary>
+            /// Checks if the structure has a given field.
+            /// </summary>
+            /// <param name="key">Field name</param>
+            /// <returns>True iff the structure has a given field.</returns>
+            public bool ContainsKey(string key) => Parent.Fields.ContainsKey(key);
+
+            /// <summary>
+            /// Tries to get the value of a given field.
+            /// </summary>
+            /// <param name="key">Field name.</param>
+            /// <param name="value">Value (or null if the field is not present).</param>
+            /// <returns>Success status of the query.</returns>
+            public bool TryGetValue(string key, out IArray value)
+            {
+                var success = Parent.Fields.TryGetValue(key, out var array);
+                if (!success)
+                {
+                    value = default(IArray);
+                    return false;
+                }
+                value = array[Index];
+                return true;
+            }
+        }
+    }
+
     internal class HdfFileReader
     {
         private long fileId;
@@ -219,6 +389,15 @@ namespace MatFileHandler
                     variables.Add(new MatVariable(value, variableName, false));
                     break;
                 case H5O.type_t.GROUP:
+                    if (variableName == "#refs#")
+                    {
+                        return 0;
+                    }
+                    var groupId = H5G.open(group, variableName);
+                    var groupValue = ReadGroup(groupId);
+                    variables.Add(new MatVariable(groupValue, variableName, false));
+                    break;
+                default:
                     throw new NotImplementedException();
             }
             return 0;
@@ -241,6 +420,7 @@ namespace MatFileHandler
             H5A.read(attributeId, classId, buf);
             var matlabClassNameBytes = new byte[(int)typeIdSize];
             Marshal.Copy(buf, matlabClassNameBytes, 0, (int)typeIdSize);
+            Marshal.FreeHGlobal(buf);
             return Encoding.ASCII.GetString(matlabClassNameBytes);
         }
 
@@ -254,30 +434,155 @@ namespace MatFileHandler
             return dims.Select(x => (int)x).ToArray();
         }
 
-        private static ArrayType ArrayTypeFromMatlabClassName(string matlabClassName)
+        private static HdfMatlabClass ArrayTypeFromMatlabClassName(string matlabClassName)
         {
             switch (matlabClassName)
             {
+                case "canonical empty":
+                    return HdfMatlabClass.MEmpty;
                 case "char":
-                    return ArrayType.MxChar;
+                    return HdfMatlabClass.MChar;
                 case "int8":
-                    return ArrayType.MxInt8;
+                    return HdfMatlabClass.MInt8;
                 case "uint8":
-                    return ArrayType.MxUInt8;
+                    return HdfMatlabClass.MUInt8;
                 case "int16":
-                    return ArrayType.MxInt16;
+                    return HdfMatlabClass.MInt16;
                 case "uint16":
-                    return ArrayType.MxUInt16;
+                    return HdfMatlabClass.MUInt16;
                 case "int32":
-                    return ArrayType.MxInt32;
+                    return HdfMatlabClass.MInt32;
                 case "uint32":
-                    return ArrayType.MxUInt32;
+                    return HdfMatlabClass.MUInt32;
                 case "int64":
-                    return ArrayType.MxInt64;
+                    return HdfMatlabClass.MInt64;
                 case "uint64":
-                    return ArrayType.MxUInt64;
+                    return HdfMatlabClass.MUInt64;
+                case "single":
+                    return HdfMatlabClass.MSingle;
                 case "double":
-                    return ArrayType.MxDouble;
+                    return HdfMatlabClass.MDouble;
+                case "cell":
+                    return HdfMatlabClass.MCell;
+            }
+            throw new NotImplementedException();
+        }
+
+        private static int GroupFieldNamesIterator(long group, IntPtr name, ref H5L.info_t info, IntPtr data)
+        {
+            var nameString = Marshal.PtrToStringAnsi(name);
+            H5O.info_t objectInfo = default(H5O.info_t);
+            H5O.get_info_by_name(group, nameString, ref objectInfo, H5P.DEFAULT);
+            return 0;
+        }
+
+        private static IArray ReadGroup(long groupId)
+        {
+            var matlabClass = GetMatlabClassOfDataset(groupId);
+            if (matlabClass == "struct")
+            {
+                return ReadStruct(groupId);
+            }
+            throw new NotImplementedException();
+        }
+
+        private static string[] ReadFieldNames(long groupId)
+        {
+            // Try to read fields from MATLAB_fields.
+            var attrId = H5A.open_by_name(groupId, ".", "MATLAB_fields");
+            if (attrId == 0)
+            {
+                throw new NotImplementedException();
+            }
+            var spaceId = H5A.get_space(attrId);
+            var rank = H5S.get_simple_extent_ndims(spaceId);
+            var dims = new ulong[rank];
+            H5S.get_simple_extent_dims(spaceId, dims, null);
+            Array.Reverse(dims);
+            var dimensions = dims.Select(x => (int)x).ToArray();
+            var numberOfFields = dimensions.NumberOfElements();
+
+            var field_id = H5A.get_type(attrId);
+
+            var fieldNamePointersSizeInBytes = numberOfFields * Marshal.SizeOf(default(H5T.hvl_t));
+            var fieldNamesBuf = Marshal.AllocHGlobal(fieldNamePointersSizeInBytes);
+            H5A.read(attrId, field_id, fieldNamesBuf);
+
+            var fieldNamePointers = new IntPtr[numberOfFields * 2];
+            Marshal.Copy(fieldNamesBuf, fieldNamePointers, 0, numberOfFields * 2);
+            Marshal.FreeHGlobal(fieldNamesBuf);
+            var fieldNames = new string[numberOfFields];
+            for (var i = 0; i < numberOfFields; i++)
+            {
+                var stringLength = fieldNamePointers[i * 2];
+                var stringPointer = fieldNamePointers[i * 2 + 1];
+                fieldNames[i] = Marshal.PtrToStringAnsi(stringPointer, (int)stringLength);
+            }
+            return fieldNames;
+        }
+
+        private static H5O.type_t GetObjectType(long groupId, string fieldName)
+        {
+            var objectInfo = default(H5O.info_t);
+            H5O.get_info_by_name(groupId, fieldName, ref objectInfo);
+            return objectInfo.type;
+        }
+
+        private static IArray ReadStruct(long groupId)
+        {
+            var fieldNames = ReadFieldNames(groupId);
+            var firstObjectType = GetObjectType(groupId, fieldNames[0]);
+            if (firstObjectType == H5O.type_t.DATASET)
+            {
+                var firstFieldId = H5D.open(groupId, fieldNames[0]);
+                var firstFieldTypeId = H5D.get_type(firstFieldId);
+                if (H5T.get_class(firstFieldTypeId) == H5T.class_t.REFERENCE)
+                {
+                    if (H5A.exists_by_name(firstFieldId, ".", "MATLAB_class") != 0)
+                    {
+                        throw new NotImplementedException();
+                    }
+                    else
+                    {
+                        var dimensions = GetDimensionsOfDataset(firstFieldId);
+                        var numberOfElements = dimensions.NumberOfElements();
+                        var dictionary = new Dictionary<string, List<IArray>>();
+                        foreach (var fieldName in fieldNames)
+                        {
+                            var fieldType = GetObjectType(groupId, fieldName);
+                            dictionary[fieldName] = new List<IArray>();
+                            switch (fieldType)
+                            {
+                                case H5O.type_t.DATASET:
+                                    var fieldId = H5D.open(groupId, fieldName);
+                                    var buf = Marshal.AllocHGlobal(Marshal.SizeOf(default(IntPtr)) * numberOfElements);
+                                    H5D.read(fieldId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf);
+                                    for (var i = 0; i < numberOfElements; i++)
+                                    {
+                                        var fieldDataSet = H5R.dereference(
+                                            fieldId,
+                                            H5P.DEFAULT,
+                                            H5R.type_t.OBJECT,
+                                            buf + (i * Marshal.SizeOf(default(IntPtr))));
+                                        var dataset = ReadDataset(fieldDataSet);
+                                        dictionary[fieldName].Add(dataset);
+                                    }
+                                    break;
+                                default:
+                                    throw new NotImplementedException();
+                            }
+                        }
+                        return new HdfStructureArray(dimensions, dictionary);
+                    }
+                }
+                else
+                {
+                    throw new NotImplementedException();
+                }
+            }
+            else
+            {
+                throw new NotImplementedException();
             }
             throw new NotImplementedException();
         }
@@ -291,84 +596,107 @@ namespace MatFileHandler
 
             switch (arrayType)
             {
-                case ArrayType.MxChar:
+                case HdfMatlabClass.MEmpty:
+                    return HdfArray.Empty();
+                case HdfMatlabClass.MChar:
                     return ReadCharArray(datasetId, dims);
-                case ArrayType.MxInt8:
+                case HdfMatlabClass.MInt8:
                     return ReadNumericalArray<sbyte>(datasetId, dims, arrayType);
-                case ArrayType.MxUInt8:
+                case HdfMatlabClass.MUInt8:
                     return ReadNumericalArray<byte>(datasetId, dims, arrayType);
-                case ArrayType.MxInt16:
+                case HdfMatlabClass.MInt16:
                     return ReadNumericalArray<short>(datasetId, dims, arrayType);
-                case ArrayType.MxUInt16:
+                case HdfMatlabClass.MUInt16:
                     return ReadNumericalArray<ushort>(datasetId, dims, arrayType);
-                case ArrayType.MxInt32:
+                case HdfMatlabClass.MInt32:
                     return ReadNumericalArray<int>(datasetId, dims, arrayType);
-                case ArrayType.MxUInt32:
+                case HdfMatlabClass.MUInt32:
                     return ReadNumericalArray<uint>(datasetId, dims, arrayType);
-                case ArrayType.MxInt64:
+                case HdfMatlabClass.MInt64:
                     return ReadNumericalArray<long>(datasetId, dims, arrayType);
-                case ArrayType.MxUInt64:
+                case HdfMatlabClass.MUInt64:
                     return ReadNumericalArray<ulong>(datasetId, dims, arrayType);
-                case ArrayType.MxSingle:
+                case HdfMatlabClass.MSingle:
                     return ReadNumericalArray<float>(datasetId, dims, arrayType);
-                case ArrayType.MxDouble:
+                case HdfMatlabClass.MDouble:
                     return ReadNumericalArray<double>(datasetId, dims, arrayType);
+                case HdfMatlabClass.MCell:
+                    return ReadCellArray(datasetId, dims);
             }
             throw new NotImplementedException($"Unknown array type: {arrayType}.");
         }
 
-        private static int SizeOfArrayElement(ArrayType arrayType)
+        private static IArray ReadCellArray(long datasetId, int[] dims)
+        {
+            var numberOfElements = dims.NumberOfElements();
+            var buf = Marshal.AllocHGlobal(Marshal.SizeOf(default(IntPtr)) * numberOfElements);
+            H5D.read(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf);
+            var elements = new IArray[numberOfElements];
+            for (var i = 0; i < numberOfElements; i++)
+            {
+                var fieldDataSet = H5R.dereference(
+                    datasetId,
+                    H5P.DEFAULT,
+                    H5R.type_t.OBJECT,
+                    buf + (i * Marshal.SizeOf(default(IntPtr))));
+                var dataset = ReadDataset(fieldDataSet);
+                elements[i] = dataset;
+            }
+            return new HdfCellArray(dims, elements);
+        }
+
+        private static int SizeOfArrayElement(HdfMatlabClass arrayType)
         {
             switch (arrayType)
             {
-                case ArrayType.MxInt8:
-                case ArrayType.MxUInt8:
+                case HdfMatlabClass.MInt8:
+                case HdfMatlabClass.MUInt8:
                     return 1;
-                case ArrayType.MxInt16:
-                case ArrayType.MxUInt16:
+                case HdfMatlabClass.MInt16:
+                case HdfMatlabClass.MUInt16:
                     return 2;
-                case ArrayType.MxInt32:
-                case ArrayType.MxUInt32:
-                case ArrayType.MxSingle:
+                case HdfMatlabClass.MInt32:
+                case HdfMatlabClass.MUInt32:
+                case HdfMatlabClass.MSingle:
                     return 4;
-                case ArrayType.MxInt64:
-                case ArrayType.MxUInt64:
-                case ArrayType.MxDouble:
+                case HdfMatlabClass.MInt64:
+                case HdfMatlabClass.MUInt64:
+                case HdfMatlabClass.MDouble:
                     return 8;
             }
 
             throw new NotImplementedException();
         }
 
-        private static long H5tTypeFromArrayType(ArrayType arrayType)
+        private static long H5tTypeFromHdfMatlabClass(HdfMatlabClass arrayType)
         {
             switch (arrayType)
             {
-                case ArrayType.MxInt8:
+                case HdfMatlabClass.MInt8:
                     return H5T.NATIVE_INT8;
-                case ArrayType.MxUInt8:
+                case HdfMatlabClass.MUInt8:
                     return H5T.NATIVE_UINT8;
-                case ArrayType.MxInt16:
+                case HdfMatlabClass.MInt16:
                     return H5T.NATIVE_INT16;
-                case ArrayType.MxUInt16:
+                case HdfMatlabClass.MUInt16:
                     return H5T.NATIVE_UINT16;
-                case ArrayType.MxInt32:
+                case HdfMatlabClass.MInt32:
                     return H5T.NATIVE_INT32;
-                case ArrayType.MxUInt32:
+                case HdfMatlabClass.MUInt32:
                     return H5T.NATIVE_UINT32;
-                case ArrayType.MxInt64:
+                case HdfMatlabClass.MInt64:
                     return H5T.NATIVE_INT64;
-                case ArrayType.MxUInt64:
+                case HdfMatlabClass.MUInt64:
                     return H5T.NATIVE_UINT64;
-                case ArrayType.MxSingle:
+                case HdfMatlabClass.MSingle:
                     return H5T.NATIVE_FLOAT;
-                case ArrayType.MxDouble:
+                case HdfMatlabClass.MDouble:
                     return H5T.NATIVE_DOUBLE;
             }
             throw new NotImplementedException();
         }
 
-        private static T[] ConvertDataToProperType<T>(byte[] bytes, ArrayType arrayType)
+        private static T[] ConvertDataToProperType<T>(byte[] bytes, HdfMatlabClass arrayType)
             where T : struct
         {
             var length = bytes.Length;
@@ -384,10 +712,11 @@ namespace MatFileHandler
             H5D.read(datasetId, elementType, H5S.ALL, H5S.ALL, H5P.DEFAULT, dataBuffer);
             var data = new byte[dataSize];
             Marshal.Copy(dataBuffer, data, 0, dataSize);
+            Marshal.FreeHGlobal(dataBuffer);
             return data;
         }
 
-        private static IArray ReadNumericalArray<T>(long datasetId, int[] dims, ArrayType arrayType)
+        private static IArray ReadNumericalArray<T>(long datasetId, int[] dims, HdfMatlabClass arrayType)
             where T : struct
         {
             var numberOfElements = dims.NumberOfElements();
@@ -398,7 +727,7 @@ namespace MatFileHandler
             var isCompound = dataSetTypeClass == H5T.class_t.COMPOUND;
             if (isCompound)
             {
-                var h5Type = H5tTypeFromArrayType(arrayType);
+                var h5Type = H5tTypeFromHdfMatlabClass(arrayType);
                 var h5Size = H5T.get_size(h5Type);
                 var h5tComplexReal = H5T.create(H5T.class_t.COMPOUND, h5Size);
                 H5T.insert(h5tComplexReal, "real", IntPtr.Zero, h5Type);
@@ -408,7 +737,7 @@ namespace MatFileHandler
                 H5T.insert(h5tComplexImaginary, "imag", IntPtr.Zero, h5Type);
                 var imaginaryData = ReadDataset(datasetId, h5tComplexImaginary, dataSize);
                 var convertedImaginaryData = ConvertDataToProperType<T>(imaginaryData, arrayType);
-                if (arrayType == ArrayType.MxDouble)
+                if (arrayType == HdfMatlabClass.MDouble)
                 {
                     var complexData =
                         (convertedRealData as double[])
@@ -429,7 +758,7 @@ namespace MatFileHandler
             {
                 throw new Exception("Data size mismatch.");
             }
-            var data = ReadDataset(datasetId, H5tTypeFromArrayType(arrayType), dataSize);
+            var data = ReadDataset(datasetId, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
             var convertedData = ConvertDataToProperType<T>(data, arrayType);
             return new HdfNumericalArrayOf<T>(dims, convertedData);
         }

@@ -1,5 +1,6 @@
 ﻿using NUnit.Framework;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 
 namespace MatFileHandler.Tests
@@ -163,6 +164,44 @@ namespace MatFileHandler.Tests
 
             array = matFile["uint64_complex"].Value;
             CheckComplexLimits(array as IArrayOf<ComplexOf<ulong>>, CommonData.UInt64Limits);
+        }
+
+        /// <summary>
+        /// Test reading a structure array.
+        /// </summary>
+        [Test]
+        public void TestStruct()
+        {
+            var matFile = ReadHdfTestFile("struct");
+            var structure = matFile["struct_"].Value as IStructureArray;
+            Assert.That(structure, Is.Not.Null);
+            Assert.That(structure.FieldNames, Is.EquivalentTo(new[] { "x", "y" }));
+            var element = structure[0, 0];
+            Assert.That(element.ContainsKey("x"), Is.True);
+            Assert.That(element.Count, Is.EqualTo(2));
+            Assert.That(element.TryGetValue("x", out var _), Is.True);
+            Assert.That(element.TryGetValue("z", out var _), Is.False);
+            Assert.That(element.Keys, Has.Exactly(2).Items);
+            Assert.That(element.Values, Has.Exactly(2).Items);
+            var keys = element.Select(pair => pair.Key);
+            Assert.That(keys, Is.EquivalentTo(new[] { "x", "y" }));
+
+            Assert.That((element["x"] as IArrayOf<double>)?[0], Is.EqualTo(12.345));
+
+            Assert.That((structure["x", 0, 0] as IArrayOf<double>)?[0], Is.EqualTo(12.345));
+            Assert.That((structure["y", 0, 0] as ICharArray)?.String, Is.EqualTo("abc"));
+            Assert.That((structure["x", 1, 0] as ICharArray)?.String, Is.EqualTo("xyz"));
+            Assert.That(structure["y", 1, 0].IsEmpty, Is.True);
+            Assert.That((structure["x", 0, 1] as IArrayOf<double>)?[0], Is.EqualTo(2.0));
+            Assert.That((structure["y", 0, 1] as IArrayOf<double>)?[0], Is.EqualTo(13.0));
+            Assert.That(structure["x", 1, 1].IsEmpty, Is.True);
+            Assert.That((structure["y", 1, 1] as ICharArray)?[0, 0], Is.EqualTo('a'));
+            Assert.That(((structure["x", 0, 2] as ICellArray)?[0] as ICharArray)?.String, Is.EqualTo("x"));
+            Assert.That(((structure["x", 0, 2] as ICellArray)?[1] as ICharArray)?.String, Is.EqualTo("yz"));
+            Assert.That((structure["y", 0, 2] as IArrayOf<double>)?.Dimensions, Is.EqualTo(new[] { 2, 3 }));
+            Assert.That((structure["y", 0, 2] as IArrayOf<double>)?[0, 2], Is.EqualTo(3.0));
+            Assert.That((structure["x", 1, 2] as IArrayOf<float>)?[0], Is.EqualTo(1.5f));
+            Assert.That(structure["y", 1, 2].IsEmpty, Is.True);
         }
 
         private static void CheckComplexLimits<T>(IArrayOf<ComplexOf<T>> array, T[] limits)
