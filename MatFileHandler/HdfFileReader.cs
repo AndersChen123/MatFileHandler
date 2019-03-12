@@ -24,6 +24,7 @@ namespace MatFileHandler
         MSingle,
         MDouble,
         MCell,
+        MLogical,
     }
 
     internal class HdfArray : IArray
@@ -440,6 +441,8 @@ namespace MatFileHandler
             {
                 case "canonical empty":
                     return HdfMatlabClass.MEmpty;
+                case "logical":
+                    return HdfMatlabClass.MLogical;
                 case "char":
                     return HdfMatlabClass.MChar;
                 case "int8":
@@ -598,6 +601,8 @@ namespace MatFileHandler
             {
                 case HdfMatlabClass.MEmpty:
                     return HdfArray.Empty();
+                case HdfMatlabClass.MLogical:
+                    return ReadNumericalArray<bool>(datasetId, dims, arrayType);
                 case HdfMatlabClass.MChar:
                     return ReadCharArray(datasetId, dims);
                 case HdfMatlabClass.MInt8:
@@ -651,6 +656,7 @@ namespace MatFileHandler
             {
                 case HdfMatlabClass.MInt8:
                 case HdfMatlabClass.MUInt8:
+                case HdfMatlabClass.MLogical:
                     return 1;
                 case HdfMatlabClass.MInt16:
                 case HdfMatlabClass.MUInt16:
@@ -675,6 +681,7 @@ namespace MatFileHandler
                 case HdfMatlabClass.MInt8:
                     return H5T.NATIVE_INT8;
                 case HdfMatlabClass.MUInt8:
+                case HdfMatlabClass.MLogical:
                     return H5T.NATIVE_UINT8;
                 case HdfMatlabClass.MInt16:
                     return H5T.NATIVE_INT16;

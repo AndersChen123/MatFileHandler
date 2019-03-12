@@ -204,6 +204,24 @@ namespace MatFileHandler.Tests
             Assert.That(structure["y", 1, 2].IsEmpty, Is.True);
         }
 
+        /// <summary>
+        /// Test reading a logical array.
+        /// </summary>
+        [Test]
+        public void TestLogical()
+        {
+            var matFile = ReadHdfTestFile("logical");
+            var array = matFile["logical_"].Value;
+            var logicalArray = array as IArrayOf<bool>;
+            Assert.That(logicalArray, Is.Not.Null);
+            Assert.That(logicalArray[0, 0], Is.True);
+            Assert.That(logicalArray[0, 1], Is.True);
+            Assert.That(logicalArray[0, 2], Is.False);
+            Assert.That(logicalArray[1, 0], Is.False);
+            Assert.That(logicalArray[1, 1], Is.True);
+            Assert.That(logicalArray[1, 2], Is.True);
+        }
+
         private static void CheckComplexLimits<T>(IArrayOf<ComplexOf<T>> array, T[] limits)
             where T : struct
         {
