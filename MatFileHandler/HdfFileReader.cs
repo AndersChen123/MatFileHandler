@@ -9,6 +9,83 @@ using HDF.PInvoke;
 
 namespace MatFileHandler
 {
+    public struct Dataset : IDisposable
+    {
+        public long Id { get; private set; }
+
+        public Dataset(long groupId, string name)
+        {
+            Id = H5D.open(groupId, name);
+        }
+
+        public void Dispose()
+        {
+            if (Id != -1)
+            {
+                H5D.close(Id);
+                Id = -1;
+            }
+        }
+    }
+
+    public struct Group : IDisposable
+    {
+        public long Id { get; private set; }
+
+        public Group(long groupId, string name)
+        {
+            Id = H5G.open(groupId, name);
+        }
+
+        public void Dispose()
+        {
+            if (Id != -1)
+            {
+                H5G.close(Id);
+                Id = -1;
+            }
+        }
+    }
+
+    public struct Attribute : IDisposable
+    {
+        public long Id { get; private set; }
+
+        public Attribute(long locationId, string name)
+        {
+            Id = H5A.open_by_name(locationId, ".", name);
+        }
+
+        public void Dispose()
+        {
+            if (Id != -1)
+            {
+                H5A.close(Id);
+                Id = -1;
+            }
+        }
+    }
+
+    sealed class MemoryHandle : IDisposable
+    {
+        internal MemoryHandle(int sizeInBytes)
+        {
+            Handle = Marshal.AllocHGlobal(sizeInBytes);
+        }
+
+        internal IntPtr Handle { get; private set; }
+
+        /// <inheritdoc/>
+        public void Dispose()
+        {
+            if (Handle != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(Handle);
+                Handle = IntPtr.Zero;
+            }
+        }
+    }
+
     internal enum HdfMatlabClass
     {
         MEmpty,
@@ -385,18 +462,22 @@ namespace MatFileHandler
             switch (object_info.type)
             {
                 case H5O.type_t.DATASET:
-                    var datasetId = H5D.open(group, variableName);
-                    var value = ReadDataset(datasetId);
-                    variables.Add(new MatVariable(value, variableName, false));
+                    using (var dataset = new Dataset(group, variableName))
+                    {
+                        var value = ReadDataset(dataset.Id);
+                        variables.Add(new MatVariable(value, variableName, false));
+                    }
                     break;
                 case H5O.type_t.GROUP:
                     if (variableName == "#refs#")
                     {
                         return 0;
                     }
-                    var groupId = H5G.open(group, variableName);
-                    var groupValue = ReadGroup(groupId);
-                    variables.Add(new MatVariable(groupValue, variableName, false));
+                    using (var subGroup = new Group(group, variableName))
+                    {
+                        var groupValue = ReadGroup(subGroup.Id);
+                        variables.Add(new MatVariable(groupValue, variableName, false));
+                    }
                     break;
                 default:
                     throw new NotImplementedException();
@@ -406,23 +487,26 @@ namespace MatFileHandler
 
         private static string GetMatlabClassOfDataset(long datasetId)
         {
-            var attributeId = H5A.open_by_name(datasetId, ".", "MATLAB_class");
-
-            var typeId = H5A.get_type(attributeId);
-            var cl = H5T.get_class(typeId);
-            if (cl != H5T.class_t.STRING)
+            using (var attribute = new Attribute(datasetId, "MATLAB_class"))
             {
-                throw new NotImplementedException();
+                var typeId = H5A.get_type(attribute.Id);
+                var cl = H5T.get_class(typeId);
+                if (cl != H5T.class_t.STRING)
+                {
+                    throw new NotImplementedException();
+                }
+                var classId = H5T.copy(H5T.C_S1);
+                var typeIdSize = (int)H5T.get_size(typeId);
+                H5T.set_size(classId, (IntPtr)typeIdSize);
+                var matlabClassNameBytes = new byte[typeIdSize];
+                using (var buf = new MemoryHandle(typeIdSize))
+                {
+                    H5A.read(attribute.Id, classId, buf.Handle);
+                    Marshal.Copy(buf.Handle, matlabClassNameBytes, 0, typeIdSize);
+                }
+
+                return Encoding.ASCII.GetString(matlabClassNameBytes);
             }
-            var classId = H5T.copy(H5T.C_S1);
-            var typeIdSize = H5T.get_size(typeId);
-            H5T.set_size(classId, typeIdSize);
-            var buf = Marshal.AllocHGlobal(typeIdSize);
-            H5A.read(attributeId, classId, buf);
-            var matlabClassNameBytes = new byte[(int)typeIdSize];
-            Marshal.Copy(buf, matlabClassNameBytes, 0, (int)typeIdSize);
-            Marshal.FreeHGlobal(buf);
-            return Encoding.ASCII.GetString(matlabClassNameBytes);
         }
 
         private static int[] GetDimensionsOfDataset(long datasetId)
@@ -492,36 +576,39 @@ namespace MatFileHandler
         private static string[] ReadFieldNames(long groupId)
         {
             // Try to read fields from MATLAB_fields.
-            var attrId = H5A.open_by_name(groupId, ".", "MATLAB_fields");
-            if (attrId == 0)
+            using (var attr = new Attribute(groupId, "MATLAB_fields"))
             {
-                throw new NotImplementedException();
+                if (attr.Id == 0)
+                {
+                    throw new NotImplementedException();
+                }
+                var spaceId = H5A.get_space(attr.Id);
+                var rank = H5S.get_simple_extent_ndims(spaceId);
+                var dims = new ulong[rank];
+                H5S.get_simple_extent_dims(spaceId, dims, null);
+                Array.Reverse(dims);
+                var dimensions = dims.Select(x => (int)x).ToArray();
+                var numberOfFields = dimensions.NumberOfElements();
+
+                var field_id = H5A.get_type(attr.Id);
+
+                var fieldNamePointersSizeInBytes = numberOfFields * Marshal.SizeOf(default(H5T.hvl_t));
+                var fieldNamePointers = new IntPtr[numberOfFields * 2];
+                using (var fieldNamesBuf = new MemoryHandle(fieldNamePointersSizeInBytes))
+                {
+                    H5A.read(attr.Id, field_id, fieldNamesBuf.Handle);
+                    Marshal.Copy(fieldNamesBuf.Handle, fieldNamePointers, 0, numberOfFields * 2);
+                }
+
+                var fieldNames = new string[numberOfFields];
+                for (var i = 0; i < numberOfFields; i++)
+                {
+                    var stringLength = fieldNamePointers[i * 2];
+                    var stringPointer = fieldNamePointers[(i * 2) + 1];
+                    fieldNames[i] = Marshal.PtrToStringAnsi(stringPointer, (int)stringLength);
+                }
+                return fieldNames;
             }
-            var spaceId = H5A.get_space(attrId);
-            var rank = H5S.get_simple_extent_ndims(spaceId);
-            var dims = new ulong[rank];
-            H5S.get_simple_extent_dims(spaceId, dims, null);
-            Array.Reverse(dims);
-            var dimensions = dims.Select(x => (int)x).ToArray();
-            var numberOfFields = dimensions.NumberOfElements();
-
-            var field_id = H5A.get_type(attrId);
-
-            var fieldNamePointersSizeInBytes = numberOfFields * Marshal.SizeOf(default(H5T.hvl_t));
-            var fieldNamesBuf = Marshal.AllocHGlobal(fieldNamePointersSizeInBytes);
-            H5A.read(attrId, field_id, fieldNamesBuf);
-
-            var fieldNamePointers = new IntPtr[numberOfFields * 2];
-            Marshal.Copy(fieldNamesBuf, fieldNamePointers, 0, numberOfFields * 2);
-            Marshal.FreeHGlobal(fieldNamesBuf);
-            var fieldNames = new string[numberOfFields];
-            for (var i = 0; i < numberOfFields; i++)
-            {
-                var stringLength = fieldNamePointers[i * 2];
-                var stringPointer = fieldNamePointers[i * 2 + 1];
-                fieldNames[i] = Marshal.PtrToStringAnsi(stringPointer, (int)stringLength);
-            }
-            return fieldNames;
         }
 
         private static H5O.type_t GetObjectType(long groupId, string fieldName)
@@ -537,50 +624,56 @@ namespace MatFileHandler
             var firstObjectType = GetObjectType(groupId, fieldNames[0]);
             if (firstObjectType == H5O.type_t.DATASET)
             {
-                var firstFieldId = H5D.open(groupId, fieldNames[0]);
-                var firstFieldTypeId = H5D.get_type(firstFieldId);
-                if (H5T.get_class(firstFieldTypeId) == H5T.class_t.REFERENCE)
+                using (var firstField = new Dataset(groupId, fieldNames[0]))
                 {
-                    if (H5A.exists_by_name(firstFieldId, ".", "MATLAB_class") != 0)
+                    var firstFieldTypeId = H5D.get_type(firstField.Id);
+                    if (H5T.get_class(firstFieldTypeId) == H5T.class_t.REFERENCE)
                     {
-                        throw new NotImplementedException();
+                        if (H5A.exists_by_name(firstField.Id, ".", "MATLAB_class") != 0)
+                        {
+                            throw new NotImplementedException();
+                        }
+                        else
+                        {
+                            var dimensions = GetDimensionsOfDataset(firstField.Id);
+                            var numberOfElements = dimensions.NumberOfElements();
+                            var dictionary = new Dictionary<string, List<IArray>>();
+                            foreach (var fieldName in fieldNames)
+                            {
+                                var fieldType = GetObjectType(groupId, fieldName);
+                                dictionary[fieldName] = new List<IArray>();
+                                switch (fieldType)
+                                {
+                                    case H5O.type_t.DATASET:
+                                        using (var field = new Dataset(groupId, fieldName))
+                                        {
+                                            using (var buf = new MemoryHandle(Marshal.SizeOf(default(IntPtr)) * numberOfElements))
+                                            {
+                                                H5D.read(field.Id, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf.Handle);
+                                                for (var i = 0; i < numberOfElements; i++)
+                                                {
+                                                    var fieldDataSet = H5R.dereference(
+                                                        field.Id,
+                                                        H5P.DEFAULT,
+                                                        H5R.type_t.OBJECT,
+                                                        buf.Handle + (i * Marshal.SizeOf(default(IntPtr))));
+                                                    var dataset = ReadDataset(fieldDataSet);
+                                                    dictionary[fieldName].Add(dataset);
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    default:
+                                        throw new NotImplementedException();
+                                }
+                            }
+                            return new HdfStructureArray(dimensions, dictionary);
+                        }
                     }
                     else
                     {
-                        var dimensions = GetDimensionsOfDataset(firstFieldId);
-                        var numberOfElements = dimensions.NumberOfElements();
-                        var dictionary = new Dictionary<string, List<IArray>>();
-                        foreach (var fieldName in fieldNames)
-                        {
-                            var fieldType = GetObjectType(groupId, fieldName);
-                            dictionary[fieldName] = new List<IArray>();
-                            switch (fieldType)
-                            {
-                                case H5O.type_t.DATASET:
-                                    var fieldId = H5D.open(groupId, fieldName);
-                                    var buf = Marshal.AllocHGlobal(Marshal.SizeOf(default(IntPtr)) * numberOfElements);
-                                    H5D.read(fieldId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf);
-                                    for (var i = 0; i < numberOfElements; i++)
-                                    {
-                                        var fieldDataSet = H5R.dereference(
-                                            fieldId,
-                                            H5P.DEFAULT,
-                                            H5R.type_t.OBJECT,
-                                            buf + (i * Marshal.SizeOf(default(IntPtr))));
-                                        var dataset = ReadDataset(fieldDataSet);
-                                        dictionary[fieldName].Add(dataset);
-                                    }
-                                    break;
-                                default:
-                                    throw new NotImplementedException();
-                            }
-                        }
-                        return new HdfStructureArray(dimensions, dictionary);
+                        throw new NotImplementedException();
                     }
-                }
-                else
-                {
-                    throw new NotImplementedException();
                 }
             }
             else
@@ -634,18 +727,21 @@ namespace MatFileHandler
         private static IArray ReadCellArray(long datasetId, int[] dims)
         {
             var numberOfElements = dims.NumberOfElements();
-            var buf = Marshal.AllocHGlobal(Marshal.SizeOf(default(IntPtr)) * numberOfElements);
-            H5D.read(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf);
             var elements = new IArray[numberOfElements];
-            for (var i = 0; i < numberOfElements; i++)
+            using (var buf = new MemoryHandle(Marshal.SizeOf(default(IntPtr)) * numberOfElements))
             {
-                var fieldDataSet = H5R.dereference(
-                    datasetId,
-                    H5P.DEFAULT,
-                    H5R.type_t.OBJECT,
-                    buf + (i * Marshal.SizeOf(default(IntPtr))));
-                var dataset = ReadDataset(fieldDataSet);
-                elements[i] = dataset;
+                H5D.read(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf.Handle);
+                for (var i = 0; i < numberOfElements; i++)
+                {
+                    var fieldDataSet =
+                        H5R.dereference(
+                            datasetId,
+                            H5P.DEFAULT,
+                            H5R.type_t.OBJECT,
+                            buf.Handle + (i * Marshal.SizeOf(default(IntPtr))));
+                    var dataset = ReadDataset(fieldDataSet);
+                    elements[i] = dataset;
+                }
             }
             return new HdfCellArray(dims, elements);
         }
@@ -715,11 +811,12 @@ namespace MatFileHandler
 
         private static byte[] ReadDataset(long datasetId, long elementType, int dataSize)
         {
-            var dataBuffer = Marshal.AllocHGlobal(dataSize);
-            H5D.read(datasetId, elementType, H5S.ALL, H5S.ALL, H5P.DEFAULT, dataBuffer);
             var data = new byte[dataSize];
-            Marshal.Copy(dataBuffer, data, 0, dataSize);
-            Marshal.FreeHGlobal(dataBuffer);
+            using (var dataBuffer = new MemoryHandle(dataSize))
+            {
+                H5D.read(datasetId, elementType, H5S.ALL, H5S.ALL, H5P.DEFAULT, dataBuffer.Handle);
+                Marshal.Copy(dataBuffer.Handle, data, 0, dataSize);
+            }
             return data;
         }
 
