@@ -1,427 +1,16 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using HDF.PInvoke;
+using MatFileHandler.Hdf;
+using Array = MatFileHandler.Hdf.Array;
+using Attribute = MatFileHandler.Hdf.Attribute;
 
 namespace MatFileHandler
 {
-    public struct Dataset : IDisposable
-    {
-        public long Id { get; private set; }
-
-        public Dataset(long groupId, string name)
-        {
-            Id = H5D.open(groupId, name);
-        }
-
-        public void Dispose()
-        {
-            if (Id != -1)
-            {
-                H5D.close(Id);
-                Id = -1;
-            }
-        }
-    }
-
-    public struct Group : IDisposable
-    {
-        public long Id { get; private set; }
-
-        public Group(long groupId, string name)
-        {
-            Id = H5G.open(groupId, name);
-        }
-
-        public void Dispose()
-        {
-            if (Id != -1)
-            {
-                H5G.close(Id);
-                Id = -1;
-            }
-        }
-    }
-
-    public struct Attribute : IDisposable
-    {
-        public long Id { get; private set; }
-
-        public Attribute(long locationId, string name)
-        {
-            Id = H5A.open_by_name(locationId, ".", name);
-        }
-
-        public void Dispose()
-        {
-            if (Id != -1)
-            {
-                H5A.close(Id);
-                Id = -1;
-            }
-        }
-    }
-
-    sealed class MemoryHandle : IDisposable
-    {
-        internal MemoryHandle(int sizeInBytes)
-        {
-            Handle = Marshal.AllocHGlobal(sizeInBytes);
-        }
-
-        internal IntPtr Handle { get; private set; }
-
-        /// <inheritdoc/>
-        public void Dispose()
-        {
-            if (Handle != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(Handle);
-                Handle = IntPtr.Zero;
-            }
-        }
-    }
-
-    internal enum HdfMatlabClass
-    {
-        MEmpty,
-        MChar,
-        MInt8,
-        MUInt8,
-        MInt16,
-        MUInt16,
-        MInt32,
-        MUInt32,
-        MInt64,
-        MUInt64,
-        MSingle,
-        MDouble,
-        MCell,
-        MLogical,
-    }
-
-    internal class HdfArray : IArray
-    {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="HdfArray"/> class.
-        /// </summary>
-        /// <param name="dimensions">Dimensions of the array.</param>
-        protected HdfArray(
-            int[] dimensions)
-        {
-            Dimensions = dimensions;
-        }
-
-        /// <inheritdoc />
-        public int[] Dimensions { get; }
-
-        /// <inheritdoc />
-        public int Count => Dimensions.NumberOfElements();
-
-        /// <summary>
-        /// Returns a new empty array.
-        /// </summary>
-        /// <returns>Empty array.</returns>
-        public static HdfArray Empty()
-        {
-            return new HdfArray(Array.Empty<int>());
-        }
-
-        public virtual double[] ConvertToDoubleArray()
-        {
-            return null;
-        }
-
-        public virtual Complex[] ConvertToComplexArray()
-        {
-            return null;
-        }
-
-        /// <inheritdoc />
-        public bool IsEmpty => Dimensions.Length == 0;
-    }
-
-    internal class HdfCellArray : HdfArray, ICellArray
-    {
-        public HdfCellArray(int[] dimensions, IEnumerable<IArray> elements)
-            : base(dimensions)
-        {
-            Data = elements.ToArray();
-        }
-
-        /// <inheritdoc />
-        public IArray[] Data { get; }
-
-        /// <inheritdoc />
-        public IArray this[params int[] indices]
-        {
-            get => Data[Dimensions.DimFlatten(indices)];
-            set => Data[Dimensions.DimFlatten(indices)] = value;
-        }
-    }
-
-    /// <summary>
-    /// A numerical array.
-    /// </summary>
-    /// <typeparam name="T">Element type.</typeparam>
-    internal class HdfNumericalArrayOf<T> : HdfArray, IArrayOf<T>
-      where T : struct
-    {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="HdfNumericalArrayOf{T}"/> class.
-        /// </summary>
-        /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
-        /// <param name="data">Array contents.</param>
-        public HdfNumericalArrayOf(int[] dimensions, T[] data)
-            : base(dimensions)
-        {
-            Data = data;
-        }
-
-        /// <inheritdoc />
-        public T[] Data { get; }
-
-        /// <inheritdoc />
-        public T this[params int[] list]
-        {
-            get => Data[Dimensions.DimFlatten(list)];
-            set => Data[Dimensions.DimFlatten(list)] = value;
-        }
-
-        /// <summary>
-        /// Tries to convert the array to an array of Double values.
-        /// </summary>
-        /// <returns>Array of values of the array, converted to Double, or null if the conversion is not possible.</returns>
-        public override double[] ConvertToDoubleArray()
-        {
-            return Data as double[] ?? Data.Select(x => Convert.ToDouble(x)).ToArray();
-        }
-
-        /// <summary>
-        /// Tries to convert the array to an array of Complex values.
-        /// </summary>
-        /// <returns>Array of values of the array, converted to Complex, or null if the conversion is not possible.</returns>
-        public override Complex[] ConvertToComplexArray()
-        {
-            if (Data is Complex[])
-            {
-                return Data as Complex[];
-            }
-            if (Data is ComplexOf<sbyte>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<sbyte>[]);
-            }
-            if (Data is ComplexOf<byte>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<byte>[]);
-            }
-            if (Data is ComplexOf<short>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<short>[]);
-            }
-            if (Data is ComplexOf<ushort>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<ushort>[]);
-            }
-            if (Data is ComplexOf<int>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<int>[]);
-            }
-            if (Data is ComplexOf<uint>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<uint>[]);
-            }
-            if (Data is ComplexOf<long>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<long>[]);
-            }
-            if (Data is ComplexOf<ulong>[])
-            {
-                return ConvertToComplex(Data as ComplexOf<ulong>[]);
-            }
-            return ConvertToDoubleArray().Select(x => new Complex(x, 0.0)).ToArray();
-        }
-
-        private static Complex[] ConvertToComplex<TS>(IEnumerable<ComplexOf<TS>> array)
-          where TS : struct
-        {
-            return array.Select(x => new Complex(Convert.ToDouble(x.Real), Convert.ToDouble(x.Imaginary))).ToArray();
-        }
-    }
-
-    internal class HdfCharArray : HdfArray, ICharArray
-    {
-        public HdfCharArray(int[] dimensions, string data)
-        : base(dimensions)
-        {
-            StringData = data;
-        }
-
-        public override double[] ConvertToDoubleArray()
-        {
-            return Data.Select(Convert.ToDouble).ToArray();
-        }
-
-        public override Complex[] ConvertToComplexArray()
-        {
-            return ConvertToDoubleArray().Select(x => new Complex(x, 0.0)).ToArray();
-        }
-
-        public char[] Data => StringData.ToCharArray();
-
-        public char this[params int[] list]
-        {
-            get => StringData[Dimensions.DimFlatten(list)];
-            set {
-                var chars = StringData.ToCharArray();
-                chars[Dimensions.DimFlatten(list)] = value;
-                StringData = chars.ToString();
-            }
-        }
-
-        public string String => StringData;
-
-        private string StringData { get; set; }
-    }
-
-    internal class HdfStructureArray : HdfArray, IStructureArray
-    {
-        public HdfStructureArray(
-            int[] dimensions,
-            Dictionary<string, List<IArray>> fields)
-            : base(dimensions)
-        {
-            Fields = fields;
-        }
-
-        /// <inheritdoc />
-        public IEnumerable<string> FieldNames => Fields.Keys;
-
-        /// <summary>
-        /// Gets null: not implemented.
-        /// </summary>
-        public IReadOnlyDictionary<string, IArray>[] Data => null;
-
-        /// <summary>
-        /// Gets a dictionary that maps field names to lists of values.
-        /// </summary>
-        internal Dictionary<string, List<IArray>> Fields { get; }
-
-        /// <inheritdoc />
-        public IArray this[string field, params int[] list]
-        {
-            get => Fields[field][Dimensions.DimFlatten(list)];
-            set => Fields[field][Dimensions.DimFlatten(list)] = value;
-        }
-
-        /// <inheritdoc />
-        IReadOnlyDictionary<string, IArray> IArrayOf<IReadOnlyDictionary<string, IArray>>.this[params int[] list]
-        {
-            get => ExtractStructure(Dimensions.DimFlatten(list));
-            set => throw new NotSupportedException(
-                "Cannot set structure elements via this[params int[]] indexer. Use this[string, int[]] instead.");
-        }
-
-        private IReadOnlyDictionary<string, IArray> ExtractStructure(int i)
-        {
-            return new HdfStructureArrayElement(this, i);
-        }
-
-        /// <summary>
-        /// Provides access to an element of a structure array by fields.
-        /// </summary>
-        internal class HdfStructureArrayElement : IReadOnlyDictionary<string, IArray>
-        {
-            /// <summary>
-            /// Initializes a new instance of the <see cref="HdfStructureArrayElement"/> class.
-            /// </summary>
-            /// <param name="parent">Parent structure array.</param>
-            /// <param name="index">Index in the structure array.</param>
-            internal HdfStructureArrayElement(HdfStructureArray parent, int index)
-            {
-                Parent = parent;
-                Index = index;
-            }
-
-            /// <summary>
-            /// Gets the number of fields.
-            /// </summary>
-            public int Count => Parent.Fields.Count;
-
-            /// <summary>
-            /// Gets a list of all fields.
-            /// </summary>
-            public IEnumerable<string> Keys => Parent.Fields.Keys;
-
-            /// <summary>
-            /// Gets a list of all values.
-            /// </summary>
-            public IEnumerable<IArray> Values => Parent.Fields.Values.Select(array => array[Index]);
-
-            private HdfStructureArray Parent { get; }
-
-            private int Index { get; }
-
-            /// <summary>
-            /// Gets the value of a given field.
-            /// </summary>
-            /// <param name="key">Field name.</param>
-            /// <returns>The corresponding value.</returns>
-            public IArray this[string key] => Parent.Fields[key][Index];
-
-            /// <summary>
-            /// Enumerates fieldstructure/value pairs of the dictionary.
-            /// </summary>
-            /// <returns>All field/value pairs in the structure.</returns>
-            public IEnumerator<KeyValuePair<string, IArray>> GetEnumerator()
-            {
-                foreach (var field in Parent.Fields)
-                {
-                    yield return new KeyValuePair<string, IArray>(field.Key, field.Value[Index]);
-                }
-            }
-
-            /// <summary>
-            /// Enumerates field/value pairs of the structure.
-            /// </summary>
-            /// <returns>All field/value pairs in the structure.</returns>
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-
-            /// <summary>
-            /// Checks if the structure has a given field.
-            /// </summary>
-            /// <param name="key">Field name</param>
-            /// <returns>True iff the structure has a given field.</returns>
-            public bool ContainsKey(string key) => Parent.Fields.ContainsKey(key);
-
-            /// <summary>
-            /// Tries to get the value of a given field.
-            /// </summary>
-            /// <param name="key">Field name.</param>
-            /// <param name="value">Value (or null if the field is not present).</param>
-            /// <returns>Success status of the query.</returns>
-            public bool TryGetValue(string key, out IArray value)
-            {
-                var success = Parent.Fields.TryGetValue(key, out var array);
-                if (!success)
-                {
-                    value = default(IArray);
-                    return false;
-                }
-                value = array[Index];
-                return true;
-            }
-        }
-    }
-
     internal class HdfFileReader
     {
         private long fileId;
@@ -515,42 +104,42 @@ namespace MatFileHandler
             var rank = H5S.get_simple_extent_ndims(spaceId);
             var dims = new ulong[rank];
             H5S.get_simple_extent_dims(spaceId, dims, null);
-            Array.Reverse(dims);
+            System.Array.Reverse(dims);
             return dims.Select(x => (int)x).ToArray();
         }
 
-        private static HdfMatlabClass ArrayTypeFromMatlabClassName(string matlabClassName)
+        private static MatlabClass ArrayTypeFromMatlabClassName(string matlabClassName)
         {
             switch (matlabClassName)
             {
                 case "canonical empty":
-                    return HdfMatlabClass.MEmpty;
+                    return MatlabClass.MEmpty;
                 case "logical":
-                    return HdfMatlabClass.MLogical;
+                    return MatlabClass.MLogical;
                 case "char":
-                    return HdfMatlabClass.MChar;
+                    return MatlabClass.MChar;
                 case "int8":
-                    return HdfMatlabClass.MInt8;
+                    return MatlabClass.MInt8;
                 case "uint8":
-                    return HdfMatlabClass.MUInt8;
+                    return MatlabClass.MUInt8;
                 case "int16":
-                    return HdfMatlabClass.MInt16;
+                    return MatlabClass.MInt16;
                 case "uint16":
-                    return HdfMatlabClass.MUInt16;
+                    return MatlabClass.MUInt16;
                 case "int32":
-                    return HdfMatlabClass.MInt32;
+                    return MatlabClass.MInt32;
                 case "uint32":
-                    return HdfMatlabClass.MUInt32;
+                    return MatlabClass.MUInt32;
                 case "int64":
-                    return HdfMatlabClass.MInt64;
+                    return MatlabClass.MInt64;
                 case "uint64":
-                    return HdfMatlabClass.MUInt64;
+                    return MatlabClass.MUInt64;
                 case "single":
-                    return HdfMatlabClass.MSingle;
+                    return MatlabClass.MSingle;
                 case "double":
-                    return HdfMatlabClass.MDouble;
+                    return MatlabClass.MDouble;
                 case "cell":
-                    return HdfMatlabClass.MCell;
+                    return MatlabClass.MCell;
             }
             throw new NotImplementedException();
         }
@@ -586,7 +175,7 @@ namespace MatFileHandler
                 var rank = H5S.get_simple_extent_ndims(spaceId);
                 var dims = new ulong[rank];
                 H5S.get_simple_extent_dims(spaceId, dims, null);
-                Array.Reverse(dims);
+                System.Array.Reverse(dims);
                 var dimensions = dims.Select(x => (int)x).ToArray();
                 var numberOfFields = dimensions.NumberOfElements();
 
@@ -667,7 +256,7 @@ namespace MatFileHandler
                                         throw new NotImplementedException();
                                 }
                             }
-                            return new HdfStructureArray(dimensions, dictionary);
+                            return new StructureArray(dimensions, dictionary);
                         }
                     }
                     else
@@ -692,33 +281,33 @@ namespace MatFileHandler
 
             switch (arrayType)
             {
-                case HdfMatlabClass.MEmpty:
-                    return HdfArray.Empty();
-                case HdfMatlabClass.MLogical:
+                case MatlabClass.MEmpty:
+                    return Array.Empty();
+                case MatlabClass.MLogical:
                     return ReadNumericalArray<bool>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MChar:
+                case MatlabClass.MChar:
                     return ReadCharArray(datasetId, dims);
-                case HdfMatlabClass.MInt8:
+                case MatlabClass.MInt8:
                     return ReadNumericalArray<sbyte>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MUInt8:
+                case MatlabClass.MUInt8:
                     return ReadNumericalArray<byte>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MInt16:
+                case MatlabClass.MInt16:
                     return ReadNumericalArray<short>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MUInt16:
+                case MatlabClass.MUInt16:
                     return ReadNumericalArray<ushort>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MInt32:
+                case MatlabClass.MInt32:
                     return ReadNumericalArray<int>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MUInt32:
+                case MatlabClass.MUInt32:
                     return ReadNumericalArray<uint>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MInt64:
+                case MatlabClass.MInt64:
                     return ReadNumericalArray<long>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MUInt64:
+                case MatlabClass.MUInt64:
                     return ReadNumericalArray<ulong>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MSingle:
+                case MatlabClass.MSingle:
                     return ReadNumericalArray<float>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MDouble:
+                case MatlabClass.MDouble:
                     return ReadNumericalArray<double>(datasetId, dims, arrayType);
-                case HdfMatlabClass.MCell:
+                case MatlabClass.MCell:
                     return ReadCellArray(datasetId, dims);
             }
             throw new NotImplementedException($"Unknown array type: {arrayType}.");
@@ -743,63 +332,63 @@ namespace MatFileHandler
                     elements[i] = dataset;
                 }
             }
-            return new HdfCellArray(dims, elements);
+            return new CellArray(dims, elements);
         }
 
-        private static int SizeOfArrayElement(HdfMatlabClass arrayType)
+        private static int SizeOfArrayElement(MatlabClass arrayType)
         {
             switch (arrayType)
             {
-                case HdfMatlabClass.MInt8:
-                case HdfMatlabClass.MUInt8:
-                case HdfMatlabClass.MLogical:
+                case MatlabClass.MInt8:
+                case MatlabClass.MUInt8:
+                case MatlabClass.MLogical:
                     return 1;
-                case HdfMatlabClass.MInt16:
-                case HdfMatlabClass.MUInt16:
+                case MatlabClass.MInt16:
+                case MatlabClass.MUInt16:
                     return 2;
-                case HdfMatlabClass.MInt32:
-                case HdfMatlabClass.MUInt32:
-                case HdfMatlabClass.MSingle:
+                case MatlabClass.MInt32:
+                case MatlabClass.MUInt32:
+                case MatlabClass.MSingle:
                     return 4;
-                case HdfMatlabClass.MInt64:
-                case HdfMatlabClass.MUInt64:
-                case HdfMatlabClass.MDouble:
+                case MatlabClass.MInt64:
+                case MatlabClass.MUInt64:
+                case MatlabClass.MDouble:
                     return 8;
             }
 
             throw new NotImplementedException();
         }
 
-        private static long H5tTypeFromHdfMatlabClass(HdfMatlabClass arrayType)
+        private static long H5tTypeFromHdfMatlabClass(MatlabClass arrayType)
         {
             switch (arrayType)
             {
-                case HdfMatlabClass.MInt8:
+                case MatlabClass.MInt8:
                     return H5T.NATIVE_INT8;
-                case HdfMatlabClass.MUInt8:
-                case HdfMatlabClass.MLogical:
+                case MatlabClass.MUInt8:
+                case MatlabClass.MLogical:
                     return H5T.NATIVE_UINT8;
-                case HdfMatlabClass.MInt16:
+                case MatlabClass.MInt16:
                     return H5T.NATIVE_INT16;
-                case HdfMatlabClass.MUInt16:
+                case MatlabClass.MUInt16:
                     return H5T.NATIVE_UINT16;
-                case HdfMatlabClass.MInt32:
+                case MatlabClass.MInt32:
                     return H5T.NATIVE_INT32;
-                case HdfMatlabClass.MUInt32:
+                case MatlabClass.MUInt32:
                     return H5T.NATIVE_UINT32;
-                case HdfMatlabClass.MInt64:
+                case MatlabClass.MInt64:
                     return H5T.NATIVE_INT64;
-                case HdfMatlabClass.MUInt64:
+                case MatlabClass.MUInt64:
                     return H5T.NATIVE_UINT64;
-                case HdfMatlabClass.MSingle:
+                case MatlabClass.MSingle:
                     return H5T.NATIVE_FLOAT;
-                case HdfMatlabClass.MDouble:
+                case MatlabClass.MDouble:
                     return H5T.NATIVE_DOUBLE;
             }
             throw new NotImplementedException();
         }
 
-        private static T[] ConvertDataToProperType<T>(byte[] bytes, HdfMatlabClass arrayType)
+        private static T[] ConvertDataToProperType<T>(byte[] bytes, MatlabClass arrayType)
             where T : struct
         {
             var length = bytes.Length;
@@ -820,7 +409,7 @@ namespace MatFileHandler
             return data;
         }
 
-        private static IArray ReadNumericalArray<T>(long datasetId, int[] dims, HdfMatlabClass arrayType)
+        private static IArray ReadNumericalArray<T>(long datasetId, int[] dims, MatlabClass arrayType)
             where T : struct
         {
             var numberOfElements = dims.NumberOfElements();
@@ -841,13 +430,13 @@ namespace MatFileHandler
                 H5T.insert(h5tComplexImaginary, "imag", IntPtr.Zero, h5Type);
                 var imaginaryData = ReadDataset(datasetId, h5tComplexImaginary, dataSize);
                 var convertedImaginaryData = ConvertDataToProperType<T>(imaginaryData, arrayType);
-                if (arrayType == HdfMatlabClass.MDouble)
+                if (arrayType == MatlabClass.MDouble)
                 {
                     var complexData =
                         (convertedRealData as double[])
                             .Zip(convertedImaginaryData as double[], (x, y) => new Complex(x, y))
                             .ToArray();
-                    return new HdfNumericalArrayOf<Complex>(dims, complexData);
+                    return new NumericalArrayOf<Complex>(dims, complexData);
                 }
                 else
                 {
@@ -855,7 +444,7 @@ namespace MatFileHandler
                         convertedRealData
                             .Zip(convertedImaginaryData, (x, y) => new ComplexOf<T>(x, y))
                             .ToArray();
-                    return new HdfNumericalArrayOf<ComplexOf<T>>(dims, complexData);
+                    return new NumericalArrayOf<ComplexOf<T>>(dims, complexData);
                 }
             }
             if (dataSize != storageSize)
@@ -864,7 +453,7 @@ namespace MatFileHandler
             }
             var data = ReadDataset(datasetId, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
             var convertedData = ConvertDataToProperType<T>(data, arrayType);
-            return new HdfNumericalArrayOf<T>(dims, convertedData);
+            return new NumericalArrayOf<T>(dims, convertedData);
         }
 
         private static IArray ReadCharArray(long datasetId, int[] dims)
@@ -872,7 +461,7 @@ namespace MatFileHandler
             var storageSize = (int)H5D.get_storage_size(datasetId);
             var data = ReadDataset(datasetId, H5T.NATIVE_UINT16, storageSize);
             var str = Encoding.Unicode.GetString(data);
-            return new HdfCharArray(dims, str);
+            return new CharArray(dims, str);
         }
     }
 }

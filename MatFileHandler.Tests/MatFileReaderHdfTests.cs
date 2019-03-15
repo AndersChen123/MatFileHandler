@@ -1,7 +1,7 @@
-﻿using NUnit.Framework;
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using System.Numerics;
+using NUnit.Framework;
 
 namespace MatFileHandler.Tests
 {
