@@ -277,6 +277,17 @@ namespace MatFileHandler.Tests
             Assert.That(sparseArray[1, 2], Is.True);
         }
 
+        /// <summary>
+        /// Test reading a global variable.
+        /// </summary>
+        [Test]
+        public void TestGlobal()
+        {
+            var matFile = ReadHdfTestFile("global");
+            var variable = matFile.Variables.First();
+            Assert.That(variable.IsGlobal, Is.True);
+        }
+
         private static void CheckComplexLimits<T>(IArrayOf<ComplexOf<T>> array, T[] limits)
             where T : struct
         {

@@ -43,6 +43,24 @@ namespace MatFileHandler
             return new MatFile(variables);
         }
 
+        private bool ReadGlobalFlag(long datasetId)
+        {
+            if (H5A.exists_by_name(datasetId, ".", "MATLAB_global") != 0)
+            {
+                using (var globalAttribute = new Attribute(datasetId, "MATLAB_global"))
+                {
+                    using (var h = new MemoryHandle(sizeof(int)))
+                    {
+                        H5A.read(globalAttribute.Id, H5T.NATIVE_INT, h.Handle);
+                        var result = Marshal.ReadInt32(h.Handle);
+                        return result != 0;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private int VariableIterator(long group, IntPtr name, ref H5L.info_t info, IntPtr op_data)
         {
             var variableName = Marshal.PtrToStringAnsi(name);
@@ -53,8 +71,9 @@ namespace MatFileHandler
                 case H5O.type_t.DATASET:
                     using (var dataset = new Dataset(group, variableName))
                     {
+                        var isGlobal = ReadGlobalFlag(dataset.Id);
                         var value = ReadDataset(dataset.Id);
-                        variables.Add(new MatVariable(value, variableName, false));
+                        variables.Add(new MatVariable(value, variableName, isGlobal));
                     }
                     break;
                 case H5O.type_t.GROUP:
@@ -64,8 +83,9 @@ namespace MatFileHandler
                     }
                     using (var subGroup = new Group(group, variableName))
                     {
+                        var isGlobal = ReadGlobalFlag(subGroup.Id);
                         var groupValue = ReadGroup(subGroup.Id);
-                        variables.Add(new MatVariable(groupValue, variableName, false));
+                        variables.Add(new MatVariable(groupValue, variableName, isGlobal));
                     }
                     break;
                 default:
