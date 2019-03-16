@@ -362,5 +362,22 @@ namespace MatFileHandler
             throw new HandlerException(
                 $"Expected data element that would be convertible to uint64, found {element.GetType()}.");
         }
+
+        public static Dictionary<(int, int), T> ConvertMatlabSparseToDictionary<T>(
+            int[] rowIndex,
+            int[] columnIndex,
+            Func<int, T> get)
+        {
+            var result = new Dictionary<(int, int), T>();
+            for (var column = 0; column < columnIndex.Length - 1; column++)
+            {
+                for (var j = columnIndex[column]; j < columnIndex[column + 1]; j++)
+                {
+                    var row = rowIndex[j];
+                    result[(row, column)] = get(j);
+                }
+            }
+            return result;
+        }
     }
 }

@@ -40,7 +40,7 @@ namespace MatFileHandler
                 throw new HandlerException("Couldn't read sparse array.");
             }
             var dataDictionary =
-                ConvertMatlabSparseToDictionary(
+                DataExtraction.ConvertMatlabSparseToDictionary(
                     rowIndex,
                     columnIndex,
                     j => new Complex(realParts[j], imaginaryParts[j]));
@@ -82,7 +82,7 @@ namespace MatFileHandler
                 throw new HandlerException("Couldn't read sparse array.");
             }
             var dataDictionary =
-                ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
+                DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
             return new MatSparseArrayOf<T>(flags, dimensions, name, dataDictionary);
         }
 
@@ -224,23 +224,6 @@ namespace MatFileHandler
                 name,
                 data,
                 new string(data.Select(x => (char)x).ToArray()));
-        }
-
-        private static Dictionary<(int, int), T> ConvertMatlabSparseToDictionary<T>(
-            int[] rowIndex,
-            int[] columnIndex,
-            Func<int, T> get)
-        {
-            var result = new Dictionary<(int, int), T>();
-            for (var column = 0; column < columnIndex.Length - 1; column++)
-            {
-                for (var j = columnIndex[column]; j < columnIndex[column + 1]; j++)
-                {
-                    var row = rowIndex[j];
-                    result[(row, column)] = get(j);
-                }
-            }
-            return result;
         }
     }
 }

@@ -205,6 +205,26 @@ namespace MatFileHandler.Tests
         }
 
         /// <summary>
+        /// Test reading a sparse array.
+        /// </summary>
+        [Test]
+        public void TestSparse()
+        {
+            var matFile = ReadHdfTestFile("sparse");
+            var sparseArray = matFile["sparse_"].Value as ISparseArrayOf<double>;
+            Assert.That(sparseArray, Is.Not.Null);
+            Assert.That(sparseArray.Dimensions, Is.EqualTo(new[] { 4, 5 }));
+            Assert.That(sparseArray.Data[(1, 1)], Is.EqualTo(1.0));
+            Assert.That(sparseArray[1, 1], Is.EqualTo(1.0));
+            Assert.That(sparseArray[1, 2], Is.EqualTo(2.0));
+            Assert.That(sparseArray[2, 1], Is.EqualTo(3.0));
+            Assert.That(sparseArray[2, 3], Is.EqualTo(4.0));
+            Assert.That(sparseArray[0, 4], Is.EqualTo(0.0));
+            Assert.That(sparseArray[3, 0], Is.EqualTo(0.0));
+            Assert.That(sparseArray[3, 4], Is.EqualTo(0.0));
+        }
+
+        /// <summary>
         /// Test reading a logical array.
         /// </summary>
         [Test]
@@ -220,6 +240,41 @@ namespace MatFileHandler.Tests
             Assert.That(logicalArray[1, 0], Is.False);
             Assert.That(logicalArray[1, 1], Is.True);
             Assert.That(logicalArray[1, 2], Is.True);
+        }
+
+        /// <summary>
+        /// Test reading a sparse complex array.
+        /// </summary>
+        [Test]
+        public void TextSparseComplex()
+        {
+            var matFile = ReadHdfTestFile("sparse_complex");
+            var array = matFile["sparse_complex"].Value;
+            var sparseArray = array as ISparseArrayOf<Complex>;
+            Assert.That(sparseArray, Is.Not.Null);
+            Assert.That(sparseArray[0, 0], Is.EqualTo(-1.5 + (2.5 * Complex.ImaginaryOne)));
+            Assert.That(sparseArray[1, 0], Is.EqualTo(2 - (3 * Complex.ImaginaryOne)));
+            Assert.That(sparseArray[0, 1], Is.EqualTo(Complex.Zero));
+            Assert.That(sparseArray[1, 1], Is.EqualTo(0.5 + (1.0 * Complex.ImaginaryOne)));
+        }
+
+        /// <summary>
+        /// Test reading a sparse logical array.
+        /// </summary>
+        [Test]
+        public void TestSparseLogical()
+        {
+            var matFile = ReadHdfTestFile("sparse_logical");
+            var array = matFile["sparse_logical"].Value;
+            var sparseArray = array as ISparseArrayOf<bool>;
+            Assert.That(sparseArray, Is.Not.Null);
+            Assert.That(sparseArray.Data[(0, 0)], Is.True);
+            Assert.That(sparseArray[0, 0], Is.True);
+            Assert.That(sparseArray[0, 1], Is.True);
+            Assert.That(sparseArray[0, 2], Is.False);
+            Assert.That(sparseArray[1, 0], Is.False);
+            Assert.That(sparseArray[1, 1], Is.True);
+            Assert.That(sparseArray[1, 2], Is.True);
         }
 
         private static void CheckComplexLimits<T>(IArrayOf<ComplexOf<T>> array, T[] limits)
