@@ -15,13 +15,11 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatCharArrayOf{T}"/> class.
         /// </summary>
-        /// <param name="flags">Array parameters.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="rawData">Raw data (UTF-8 or UTF-16).</param>
         /// <param name="stringData">Contents as a string.</param>
-        internal MatCharArrayOf(ArrayFlags flags, int[] dimensions, string name, T[] rawData, string stringData)
-            : base(flags, dimensions, name, rawData)
+        internal MatCharArrayOf(int[] dimensions, T[] rawData, string stringData)
+            : base(dimensions, rawData)
         {
             StringData = stringData;
         }

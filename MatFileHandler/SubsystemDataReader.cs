@@ -314,7 +314,6 @@ namespace MatFileHandler
                 {
                     var (dimensions, indexToObjectId, classIndex) = DataElementReader.ParseOpaqueData(uintArray.Data);
                     return new OpaqueLink(
-                        uintArray.Name,
                         string.Empty,
                         string.Empty,
                         dimensions,

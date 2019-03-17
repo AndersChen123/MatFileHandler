@@ -17,7 +17,6 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="OpaqueLink"/> class.
         /// </summary>
-        /// <param name="name">Name of the object.</param>
         /// <param name="typeDescription">Description of object's class.</param>
         /// <param name="className">Name of the object's class.</param>
         /// <param name="dimensions">Dimensions of the object.</param>
@@ -26,7 +25,6 @@ namespace MatFileHandler
         /// <param name="classIndex">Index of object's class.</param>
         /// <param name="subsystemData">Reference to global subsystem data.</param>
         public OpaqueLink(
-            string name,
             string typeDescription,
             string className,
             int[] dimensions,
@@ -34,7 +32,7 @@ namespace MatFileHandler
             int[] indexToObjectId,
             int classIndex,
             SubsystemData subsystemData)
-            : base(name, typeDescription, className, dimensions, data)
+            : base(typeDescription, className, dimensions, data)
         {
             IndexToObjectId = indexToObjectId ?? throw new ArgumentNullException(nameof(indexToObjectId));
             ClassIndex = classIndex;

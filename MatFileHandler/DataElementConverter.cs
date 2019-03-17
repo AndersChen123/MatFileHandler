@@ -16,18 +16,14 @@ namespace MatFileHandler
         /// <summary>
         /// Construct a complex sparse array.
         /// </summary>
-        /// <param name="flags">Array flags.</param>
         /// <param name="dimensions">Array dimensions.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="rowIndex">Row indices.</param>
         /// <param name="columnIndex">Denotes index ranges for each column.</param>
         /// <param name="data">Real parts of the values.</param>
         /// <param name="imaginaryData">Imaginary parts of the values.</param>
         /// <returns>A constructed array.</returns>
         public static MatArray ConvertToMatSparseArrayOfComplex(
-            SparseArrayFlags flags,
             int[] dimensions,
-            string name,
             int[] rowIndex,
             int[] columnIndex,
             DataElement data,
@@ -44,7 +40,7 @@ namespace MatFileHandler
                     rowIndex,
                     columnIndex,
                     j => new Complex(realParts[j], imaginaryParts[j]));
-            return new MatSparseArrayOf<Complex>(flags, dimensions, name, dataDictionary);
+            return new MatSparseArrayOf<Complex>(dimensions, dataDictionary);
         }
 
         /// <summary>
@@ -53,15 +49,13 @@ namespace MatFileHandler
         /// <typeparam name="T">Element type (Double or Boolean).</typeparam>
         /// <param name="flags">Array flags.</param>
         /// <param name="dimensions">Array dimensions.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="rowIndex">Row indices.</param>
         /// <param name="columnIndex">Denotes index ranges for each column.</param>
         /// <param name="data">The values.</param>
         /// <returns>A constructed array.</returns>
         public static MatArray ConvertToMatSparseArrayOf<T>(
-            SparseArrayFlags flags,
+            ArrayFlags flags,
             int[] dimensions,
-            string name,
             int[] rowIndex,
             int[] columnIndex,
             DataElement data)
@@ -76,14 +70,14 @@ namespace MatFileHandler
                 throw new ArgumentException("Null data found.", "data");
             }
             var elements =
-                ConvertDataToSparseProperType<T>(data, flags.ArrayFlags.Variable.HasFlag(Variable.IsLogical));
+                ConvertDataToSparseProperType<T>(data, flags.Variable.HasFlag(Variable.IsLogical));
             if (elements == null)
             {
                 throw new HandlerException("Couldn't read sparse array.");
             }
             var dataDictionary =
                 DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
-            return new MatSparseArrayOf<T>(flags, dimensions, name, dataDictionary);
+            return new MatSparseArrayOf<T>(dimensions, dataDictionary);
         }
 
         /// <summary>
@@ -92,7 +86,6 @@ namespace MatFileHandler
         /// <typeparam name="T">Element type.</typeparam>
         /// <param name="flags">Array flags.</param>
         /// <param name="dimensions">Array dimensions.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="realData">Real parts of the values.</param>
         /// <param name="imaginaryData">Imaginary parts of the values.</param>
         /// <returns>A constructed array.</returns>
@@ -104,7 +97,6 @@ namespace MatFileHandler
         public static MatArray ConvertToMatNumericalArrayOf<T>(
             ArrayFlags flags,
             int[] dimensions,
-            string name,
             DataElement realData,
             DataElement imaginaryData)
             where T : struct
@@ -112,7 +104,7 @@ namespace MatFileHandler
             if (flags.Variable.HasFlag(Variable.IsLogical))
             {
                 var data = DataExtraction.GetDataAsUInt8(realData).ToArrayLazily().Select(x => x != 0).ToArray();
-                return new MatNumericalArrayOf<bool>(flags, dimensions, name, data);
+                return new MatNumericalArrayOf<bool>(dimensions, data);
             }
             switch (flags.Class)
             {
@@ -120,9 +112,9 @@ namespace MatFileHandler
                     switch (realData)
                     {
                         case MiNum<byte> dataByte:
-                            return ConvertToMatCharArray(flags, dimensions, name, dataByte);
+                            return ConvertToMatCharArray(dimensions, dataByte);
                         case MiNum<ushort> dataUshort:
-                            return ConvertToMatCharArray(flags, dimensions, name, dataUshort);
+                            return ConvertToMatCharArray(dimensions, dataUshort);
                         default:
                             throw new NotSupportedException("Only utf8, utf16 or ushort char arrays are supported.");
                     }
@@ -146,25 +138,23 @@ namespace MatFileHandler
                                 (dataArray as double[])
                                 .Zip(dataArray2 as double[], (x, y) => new Complex(x, y))
                                 .ToArray();
-                            return new MatNumericalArrayOf<Complex>(flags, dimensions, name, complexArray);
+                            return new MatNumericalArrayOf<Complex>(dimensions, complexArray);
                         }
                         var complexDataArray = dataArray.Zip(dataArray2, (x, y) => new ComplexOf<T>(x, y)).ToArray();
-                        return new MatNumericalArrayOf<ComplexOf<T>>(flags, dimensions, name, complexDataArray);
+                        return new MatNumericalArrayOf<ComplexOf<T>>(dimensions, complexDataArray);
                     }
-                    return new MatNumericalArrayOf<T>(flags, dimensions, name, dataArray);
+                    return new MatNumericalArrayOf<T>(dimensions, dataArray);
                 default:
                     throw new NotSupportedException();
             }
         }
 
         private static MatCharArrayOf<byte> ConvertToMatCharArray(
-            ArrayFlags flags,
             int[] dimensions,
-            string name,
             MiNum<byte> dataElement)
         {
             var data = dataElement?.Data;
-            return new MatCharArrayOf<byte>(flags, dimensions, name, data, Encoding.UTF8.GetString(data));
+            return new MatCharArrayOf<byte>(dimensions, data, Encoding.UTF8.GetString(data));
         }
 
         private static T[] ConvertDataToProperType<T>(DataElement data, ArrayType arrayType)
@@ -212,16 +202,12 @@ namespace MatFileHandler
         }
 
         private static MatCharArrayOf<ushort> ConvertToMatCharArray(
-            ArrayFlags flags,
             int[] dimensions,
-            string name,
             MiNum<ushort> dataElement)
         {
             var data = dataElement?.Data;
             return new MatCharArrayOf<ushort>(
-                flags,
                 dimensions,
-                name,
                 data,
                 new string(data.Select(x => (char)x).ToArray()));
         }

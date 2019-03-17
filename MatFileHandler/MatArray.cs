@@ -12,26 +12,14 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatArray"/> class.
         /// </summary>
-        /// <param name="flags">Array properties.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
-        protected MatArray(
-            ArrayFlags flags,
-            int[] dimensions,
-            string name)
+        protected MatArray(int[] dimensions)
         {
-            Flags = flags;
             Dimensions = dimensions;
-            Name = name;
         }
 
         /// <inheritdoc />
         public int[] Dimensions { get; }
-
-        /// <summary>
-        /// Gets the array name.
-        /// </summary>
-        public string Name { get; }
 
         /// <inheritdoc />
         public int Count => Dimensions.NumberOfElements();
@@ -40,17 +28,12 @@ namespace MatFileHandler
         public bool IsEmpty => Dimensions.Length == 0;
 
         /// <summary>
-        /// Gets properties of the array.
-        /// </summary>
-        internal ArrayFlags Flags { get; }
-
-        /// <summary>
         /// Returns a new empty array.
         /// </summary>
         /// <returns>Empty array.</returns>
         public static MatArray Empty()
         {
-            return new MatArray(new ArrayFlags { Class = ArrayType.MxCell, Variable = 0 }, new int[] { }, string.Empty);
+            return new MatArray(new int[] { });
         }
 
         /// <inheritdoc />

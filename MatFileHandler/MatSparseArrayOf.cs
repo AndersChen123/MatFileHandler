@@ -18,16 +18,10 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatSparseArrayOf{T}"/> class.
         /// </summary>
-        /// <param name="flags">Array properties.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="data">Array contents.</param>
-        public MatSparseArrayOf(
-            SparseArrayFlags flags,
-            int[] dimensions,
-            string name,
-            Dictionary<(int, int), T> data)
-            : base(flags.ArrayFlags, dimensions, name)
+        public MatSparseArrayOf(int[] dimensions, Dictionary<(int, int), T> data)
+            : base(dimensions)
         {
             DataDictionary = data;
         }

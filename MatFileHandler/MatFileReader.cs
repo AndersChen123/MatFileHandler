@@ -1,7 +1,6 @@
 ﻿// Copyright 2017-2018 Alexander Luzgarev
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 
 namespace MatFileHandler

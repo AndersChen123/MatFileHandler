@@ -18,7 +18,7 @@ namespace MatFileHandler
         /// <param name="name">Array name.</param>
         /// <param name="elements">Array elements.</param>
         public MatCellArray(ArrayFlags flags, int[] dimensions, string name, IEnumerable<IArray> elements)
-            : base(flags, dimensions, name)
+            : base(dimensions)
         {
             Data = elements.ToArray();
         }

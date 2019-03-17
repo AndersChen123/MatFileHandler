@@ -25,59 +25,60 @@ namespace MatFileHandler
             this.subsystemData = subsystemData ?? throw new ArgumentNullException(nameof(subsystemData));
         }
 
+        private DataElement ReadElementWithoutFlags(Tag tag, BinaryReader reader)
+        {
+            switch (tag.Type)
+            {
+                case DataType.MiInt8:
+                    return ReadNum<sbyte>(tag, reader);
+                case DataType.MiUInt8:
+                case DataType.MiUtf8:
+                    return ReadNum<byte>(tag, reader);
+                case DataType.MiInt16:
+                    return ReadNum<short>(tag, reader);
+                case DataType.MiUInt16:
+                case DataType.MiUtf16:
+                    return ReadNum<ushort>(tag, reader);
+                case DataType.MiInt32:
+                    return ReadNum<int>(tag, reader);
+                case DataType.MiUInt32:
+                    return ReadNum<uint>(tag, reader);
+                case DataType.MiSingle:
+                    return ReadNum<float>(tag, reader);
+                case DataType.MiDouble:
+                    return ReadNum<double>(tag, reader);
+                case DataType.MiInt64:
+                    return ReadNum<long>(tag, reader);
+                case DataType.MiUInt64:
+                    return ReadNum<ulong>(tag, reader);
+                default:
+                    throw new NotSupportedException("Unknown element.");
+            }
+        }
+
+        private DataElementWithArrayFlags ReadElementWithFlags(Tag tag, BinaryReader reader)
+        {
+            switch (tag.Type)
+            {
+                case DataType.MiMatrix:
+                    return ReadMatrix(tag, reader);
+                case DataType.MiCompressed:
+                    return ReadCompressed(tag, reader);
+                default:
+                    var element = ReadElementWithoutFlags(tag, reader);
+                    return new DataElementWithArrayFlags(element);
+            }
+        }
+
         /// <summary>
         /// Read a data element.
         /// </summary>
         /// <param name="reader">Input reader.</param>
         /// <returns>Data element.</returns>
-        public DataElement Read(BinaryReader reader)
+        public DataElementWithArrayFlags Read(BinaryReader reader)
         {
             var (dataReader, tag) = ReadTag(reader);
-            DataElement result;
-            switch (tag.Type)
-            {
-                case DataType.MiInt8:
-                    result = ReadNum<sbyte>(tag, dataReader);
-                    break;
-                case DataType.MiUInt8:
-                case DataType.MiUtf8:
-                    result = ReadNum<byte>(tag, dataReader);
-                    break;
-                case DataType.MiInt16:
-                    result = ReadNum<short>(tag, dataReader);
-                    break;
-                case DataType.MiUInt16:
-                case DataType.MiUtf16:
-                    result = ReadNum<ushort>(tag, dataReader);
-                    break;
-                case DataType.MiInt32:
-                    result = ReadNum<int>(tag, dataReader);
-                    break;
-                case DataType.MiUInt32:
-                    result = ReadNum<uint>(tag, dataReader);
-                    break;
-                case DataType.MiSingle:
-                    result = ReadNum<float>(tag, dataReader);
-                    break;
-                case DataType.MiDouble:
-                    result = ReadNum<double>(tag, dataReader);
-                    break;
-                case DataType.MiInt64:
-                    result = ReadNum<long>(tag, dataReader);
-                    break;
-                case DataType.MiUInt64:
-                    result = ReadNum<ulong>(tag, dataReader);
-                    break;
-                case DataType.MiMatrix:
-                    result = ReadMatrix(tag, dataReader);
-                    break;
-                case DataType.MiCompressed:
-                    result = ReadCompressed(tag, dataReader);
-                    break;
-                default:
-                    throw new NotSupportedException("Unknown element.");
-            }
-
+            DataElementWithArrayFlags result = ReadElementWithFlags(tag, dataReader);
             if (tag.Type != DataType.MiCompressed)
             {
                 var position = reader.BaseStream.Position;
@@ -181,17 +182,13 @@ namespace MatFileHandler
             return new MiNum<T>(result);
         }
 
-        private static SparseArrayFlags ReadSparseArrayFlags(DataElement element)
+        private static (ArrayFlags flags, uint nzMax) ReadSparseArrayFlags(DataElement element)
         {
             var arrayFlags = ReadArrayFlags(element);
             var flagData = (element as MiNum<uint>)?.Data ??
                            throw new HandlerException("Unexpected type in sparse array flags.");
             var nzMax = flagData[1];
-            return new SparseArrayFlags
-            {
-                ArrayFlags = arrayFlags,
-                NzMax = nzMax,
-            };
+            return (arrayFlags, nzMax);
         }
 
         private static (BinaryReader, Tag) ReadTag(BinaryReader reader)
@@ -222,91 +219,108 @@ namespace MatFileHandler
             var elements = new List<IArray>();
             for (var i = 0; i < numberOfElements; i++)
             {
-                var element = Read(reader) as IArray;
+                var element = Read(reader).Element as IArray;
                 elements.Add(element);
             }
 
             return new MatCellArray(flags, dimensions, name, elements);
         }
 
-        private DataElement ContinueReadingOpaque(BinaryReader reader)
+        private DataElementWithArrayFlags ContinueReadingOpaque(BinaryReader reader)
         {
-            var nameElement = Read(reader) as MiNum<sbyte> ??
+            var nameElement = Read(reader).Element as MiNum<sbyte> ??
                               throw new HandlerException("Unexpected type in object name.");
             var name = ReadName(nameElement);
-            var anotherElement = Read(reader) as MiNum<sbyte> ??
+            var anotherElement = Read(reader).Element as MiNum<sbyte> ??
                                  throw new HandlerException("Unexpected type in object type description.");
             var typeDescription = ReadName(anotherElement);
-            var classNameElement = Read(reader) as MiNum<sbyte> ??
+            var classNameElement = Read(reader).Element as MiNum<sbyte> ??
                                    throw new HandlerException("Unexpected type in class name.");
             var className = ReadName(classNameElement);
-            var dataElement = Read(reader);
+            var dataElement = Read(reader).Element;
             var data = ReadData(dataElement);
             if (data is MatNumericalArrayOf<uint> linkElement)
             {
                 var (dimensions, indexToObjectId, classIndex) = ParseOpaqueData(linkElement.Data);
-                return new OpaqueLink(
-                    name,
-                    typeDescription,
-                    className,
-                    dimensions,
-                    data,
-                    indexToObjectId,
-                    classIndex,
-                    subsystemData);
+                return new DataElementWithArrayFlags(
+                    new OpaqueLink(
+                        typeDescription,
+                        className,
+                        dimensions,
+                        data,
+                        indexToObjectId,
+                        classIndex,
+                        subsystemData),
+                    default,
+                    name);
             }
             else
             {
-                return new Opaque(name, typeDescription, className, new int[] { }, data);
+                return new DataElementWithArrayFlags(
+                    new Opaque(
+                        typeDescription,
+                        className,
+                        new int[] { },
+                        data),
+                    default,
+                    name);
             }
         }
 
-        private DataElement ContinueReadingSparseArray(
+        private DataElementWithArrayFlags ContinueReadingSparseArray(
             BinaryReader reader,
             DataElement firstElement,
             int[] dimensions,
             string name)
         {
-            var sparseArrayFlags = ReadSparseArrayFlags(firstElement);
-            var rowIndex = Read(reader) as MiNum<int> ??
+            var (arrayFlags, nzMax) = ReadSparseArrayFlags(firstElement);
+            var rowIndex = Read(reader).Element as MiNum<int> ??
                            throw new HandlerException("Unexpected type in row indices of a sparse array.");
-            var columnIndex = Read(reader) as MiNum<int> ??
+            var columnIndex = Read(reader).Element as MiNum<int> ??
                               throw new HandlerException("Unexpected type in column indices of a sparse array.");
-            var data = Read(reader);
-            if (sparseArrayFlags.ArrayFlags.Variable.HasFlag(Variable.IsLogical))
+            var data = Read(reader).Element;
+            if (arrayFlags.Variable.HasFlag(Variable.IsLogical))
             {
-                return DataElementConverter.ConvertToMatSparseArrayOf<bool>(
-                    sparseArrayFlags,
-                    dimensions,
+                return new DataElementWithArrayFlags(
+                    DataElementConverter.ConvertToMatSparseArrayOf<bool>(
+                        arrayFlags,
+                        dimensions,
+                        rowIndex.Data,
+                        columnIndex.Data,
+                        data),
+                    arrayFlags,
                     name,
-                    rowIndex.Data,
-                    columnIndex.Data,
-                    data);
+                    nzMax);
             }
 
-            if (sparseArrayFlags.ArrayFlags.Variable.HasFlag(Variable.IsComplex))
+            if (arrayFlags.Variable.HasFlag(Variable.IsComplex))
             {
-                var imaginaryData = Read(reader);
-                return DataElementConverter.ConvertToMatSparseArrayOfComplex(
-                    sparseArrayFlags,
-                    dimensions,
+                var imaginaryData = Read(reader).Element;
+                return new DataElementWithArrayFlags(
+                    DataElementConverter.ConvertToMatSparseArrayOfComplex(
+                        dimensions,
+                        rowIndex.Data,
+                        columnIndex.Data,
+                        data,
+                        imaginaryData),
+                    arrayFlags,
                     name,
-                    rowIndex.Data,
-                    columnIndex.Data,
-                    data,
-                    imaginaryData);
+                    nzMax);
             }
 
             switch (data)
             {
                 case MiNum<double> _:
-                    return DataElementConverter.ConvertToMatSparseArrayOf<double>(
-                        sparseArrayFlags,
-                        dimensions,
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatSparseArrayOf<double>(
+                            arrayFlags,
+                            dimensions,
+                            rowIndex.Data,
+                            columnIndex.Data,
+                            data),
+                        arrayFlags,
                         name,
-                        rowIndex.Data,
-                        columnIndex.Data,
-                        data);
+                        nzMax);
                 default:
                     throw new NotSupportedException("Only double and logical sparse arrays are supported.");
             }
@@ -314,12 +328,10 @@ namespace MatFileHandler
 
         private DataElement ContinueReadingStructure(
             BinaryReader reader,
-            ArrayFlags flags,
             int[] dimensions,
-            string name,
             int fieldNameLength)
         {
-            var element = Read(reader);
+            var element = Read(reader).Element;
             var fieldNames = ReadFieldNames(element as MiNum<sbyte>, fieldNameLength);
             var fields = new Dictionary<string, List<IArray>>();
             foreach (var fieldName in fieldNames)
@@ -332,15 +344,15 @@ namespace MatFileHandler
             {
                 foreach (var fieldName in fieldNames)
                 {
-                    var field = Read(reader) as IArray;
+                    var field = Read(reader).Element as IArray;
                     fields[fieldName].Add(field);
                 }
             }
 
-            return new MatStructureArray(flags, dimensions, name, fields);
+            return new MatStructureArray(dimensions, fields);
         }
 
-        private DataElement Read(Stream stream)
+        private DataElementWithArrayFlags Read(Stream stream)
         {
             using (var reader = new BinaryReader(stream))
             {
@@ -348,7 +360,7 @@ namespace MatFileHandler
             }
         }
 
-        private DataElement ReadCompressed(Tag tag, BinaryReader reader)
+        private DataElementWithArrayFlags ReadCompressed(Tag tag, BinaryReader reader)
         {
             reader.ReadBytes(2);
             var compressedData = new byte[tag.Length - 6];
@@ -367,28 +379,31 @@ namespace MatFileHandler
             return Read(resultStream);
         }
 
-        private DataElement ReadMatrix(Tag tag, BinaryReader reader)
+        private DataElementWithArrayFlags ReadMatrix(Tag tag, BinaryReader reader)
         {
             if (tag.Length == 0)
             {
-                return MatArray.Empty();
+                return new DataElementWithArrayFlags(MatArray.Empty());
             }
 
-            var element1 = Read(reader);
+            var element1 = Read(reader).Element;
             var flags = ReadArrayFlags(element1);
             if (flags.Class == ArrayType.MxOpaque)
             {
                 return ContinueReadingOpaque(reader);
             }
 
-            var element2 = Read(reader) as MiNum<int> ??
-                           throw new HandlerException("Unexpected type in array dimensions data.");
+            var element2 =
+                Read(reader).Element as MiNum<int>
+                ?? throw new HandlerException("Unexpected type in array dimensions data.");
             var dimensions = ReadDimensionsArray(element2);
-            var element3 = Read(reader) as MiNum<sbyte> ?? throw new HandlerException("Unexpected type in array name.");
+            var element3 =
+                Read(reader).Element as MiNum<sbyte>
+                ?? throw new HandlerException("Unexpected type in array name.");
             var name = ReadName(element3);
             if (flags.Class == ArrayType.MxCell)
             {
-                return ContinueReadingCellArray(reader, flags, dimensions, name);
+                return new DataElementWithArrayFlags(ContinueReadingCellArray(reader, flags, dimensions, name));
             }
 
             if (flags.Class == ArrayType.MxSparse)
@@ -396,12 +411,12 @@ namespace MatFileHandler
                 return ContinueReadingSparseArray(reader, element1, dimensions, name);
             }
 
-            var element4 = Read(reader);
+            var element4 = Read(reader).Element;
             var data = ReadData(element4);
             DataElement imaginaryData = null;
             if (flags.Variable.HasFlag(Variable.IsComplex))
             {
-                var element5 = Read(reader);
+                var element5 = Read(reader).Element;
                 imaginaryData = ReadData(element5);
             }
 
@@ -410,7 +425,10 @@ namespace MatFileHandler
                 var fieldNameLengthElement = data as MiNum<int> ??
                                              throw new HandlerException(
                                                  "Unexpected type in structure field name length.");
-                return ContinueReadingStructure(reader, flags, dimensions, name, fieldNameLengthElement.Data[0]);
+                return new DataElementWithArrayFlags(
+                    ContinueReadingStructure(reader, dimensions, fieldNameLengthElement.Data[0]),
+                    flags,
+                    name);
             }
 
             switch (flags.Class)
@@ -419,103 +437,129 @@ namespace MatFileHandler
                     switch (data)
                     {
                         case MiNum<byte> _:
-                            return DataElementConverter.ConvertToMatNumericalArrayOf<byte>(
+                            return new DataElementWithArrayFlags(
+                                DataElementConverter.ConvertToMatNumericalArrayOf<byte>(
+                                    flags,
+                                    dimensions,
+                                    data,
+                                    imaginaryData),
                                 flags,
-                                dimensions,
-                                name,
-                                data,
-                                imaginaryData);
+                                name);
                         case MiNum<ushort> _:
-                            return DataElementConverter.ConvertToMatNumericalArrayOf<ushort>(
+                            return new DataElementWithArrayFlags(
+                                DataElementConverter.ConvertToMatNumericalArrayOf<ushort>(
+                                    flags,
+                                    dimensions,
+                                    data,
+                                    imaginaryData),
                                 flags,
-                                dimensions,
-                                name,
-                                data,
-                                imaginaryData);
+                                name);
                         default:
                             throw new NotSupportedException(
                                 $"This type of char array ({data.GetType()}) is not supported.");
                     }
                 case ArrayType.MxInt8:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<sbyte>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<sbyte>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxUInt8:
                     if (flags.Variable.HasFlag(Variable.IsLogical))
                     {
-                        return DataElementConverter.ConvertToMatNumericalArrayOf<bool>(
+                        return new DataElementWithArrayFlags(
+                            DataElementConverter.ConvertToMatNumericalArrayOf<bool>(
+                                flags,
+                                dimensions,
+                                data,
+                                imaginaryData),
                             flags,
-                            dimensions,
-                            name,
-                            data,
-                            imaginaryData);
+                            name);
                     }
 
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<byte>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<byte>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxInt16:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<short>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<short>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxUInt16:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<ushort>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<ushort>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxInt32:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<int>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<int>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxUInt32:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<uint>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<uint>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxInt64:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<long>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<long>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxUInt64:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<ulong>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<ulong>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxSingle:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<float>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<float>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 case ArrayType.MxDouble:
-                    return DataElementConverter.ConvertToMatNumericalArrayOf<double>(
+                    return new DataElementWithArrayFlags(
+                        DataElementConverter.ConvertToMatNumericalArrayOf<double>(
+                            flags,
+                            dimensions,
+                            data,
+                            imaginaryData),
                         flags,
-                        dimensions,
-                        name,
-                        data,
-                        imaginaryData);
+                        name);
                 default:
                     throw new HandlerException("Unknown data type.");
             }

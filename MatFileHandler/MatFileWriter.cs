@@ -226,14 +226,14 @@ namespace MatFileHandler
             writer.Write(new byte[] { 0, 0, 0, 0, 0, 0 });
         }
 
-        private void WriteSparseArrayFlags(BinaryWriter writer, SparseArrayFlags flags)
+        private void WriteSparseArrayFlags(BinaryWriter writer, ArrayFlags flags, uint nzMax)
         {
-            var flag = (byte)flags.ArrayFlags.Variable;
+            var flag = (byte)flags.Variable;
             WriteTag(writer, new Tag(DataType.MiUInt32, 8));
-            writer.Write((byte)flags.ArrayFlags.Class);
+            writer.Write((byte)flags.Class);
             writer.Write(flag);
             writer.Write(new byte[] { 0, 0 });
-            writer.Write(flags.NzMax);
+            writer.Write(nzMax);
         }
 
         private void WriteName(BinaryWriter writer, string name)
@@ -373,19 +373,16 @@ namespace MatFileHandler
             }
         }
 
-        private SparseArrayFlags GetSparseArrayFlags<T>(ISparseArrayOf<T> array, bool isGlobal, uint nonZero)
+        private (ArrayFlags flags, uint nzMax) GetSparseArrayFlags<T>(ISparseArrayOf<T> array, bool isGlobal, uint nonZero)
             where T : struct
         {
             var flags = GetArrayFlags(array, isGlobal);
-            return new SparseArrayFlags
-            {
-                ArrayFlags = new ArrayFlags
+            return (new ArrayFlags
                 {
                     Class = ArrayType.MxSparse,
                     Variable = flags.Variable,
                 },
-                NzMax = nonZero,
-            };
+                nonZero);
         }
 
         private ArrayFlags GetCharArrayFlags(bool isGlobal)
@@ -513,7 +510,8 @@ namespace MatFileHandler
             where T : struct, IEquatable<T>
         {
             (var rows, var columns, var data, var nonZero) = PrepareSparseArrayData(array);
-            WriteSparseArrayFlags(writer, GetSparseArrayFlags(array, isGlobal, nonZero));
+            var (flags, nzMax) = GetSparseArrayFlags(array, isGlobal, nonZero);
+            WriteSparseArrayFlags(writer, flags, nzMax);
             WriteDimensions(writer, array.Dimensions);
             WriteName(writer, name);
             WriteSparseArrayValues(writer, rows, columns, data);

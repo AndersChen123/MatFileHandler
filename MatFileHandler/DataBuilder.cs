@@ -28,9 +28,7 @@ namespace MatFileHandler
             where T : struct
         {
             return new MatNumericalArrayOf<T>(
-                GetStandardFlags<T>(),
                 dimensions,
-                string.Empty,
                 new T[dimensions.NumberOfElements()]);
         }
 
@@ -54,7 +52,7 @@ namespace MatFileHandler
             {
                 throw new ArgumentException("Data size does not match the specified dimensions", "data");
             }
-            return new MatNumericalArrayOf<T>(GetStandardFlags<T>(), dimensions, string.Empty, data);
+            return new MatNumericalArrayOf<T>(dimensions, data);
         }
 
         /// <summary>
@@ -84,7 +82,7 @@ namespace MatFileHandler
             {
                 dictionary[field] = elements.ToList();
             }
-            return new MatStructureArray(flags, dimensions, string.Empty, dictionary);
+            return new MatStructureArray(dimensions, dictionary);
         }
 
         /// <summary>
@@ -107,7 +105,7 @@ namespace MatFileHandler
         {
             var flags = ConstructArrayFlags(ArrayType.MxChar);
             var ushortArray = contents.ToCharArray().Select(c => (ushort)c).ToArray();
-            return new MatCharArrayOf<ushort>(flags, dimensions, string.Empty, ushortArray, contents);
+            return new MatCharArrayOf<ushort>(dimensions, ushortArray, contents);
         }
 
         /// <summary>
@@ -129,9 +127,7 @@ namespace MatFileHandler
           where T : struct
         {
             return new MatSparseArrayOf<T>(
-                GetStandardSparseArrayFlags<T>(),
                 dimensions,
-                string.Empty,
                 new Dictionary<(int, int), T>());
         }
 
@@ -254,16 +250,6 @@ namespace MatFileHandler
                 return ConstructArrayFlags(ArrayType.MxInt8, isLogical: true);
             }
             return ConstructArrayFlags(ArrayType.MxObject);
-        }
-
-        private SparseArrayFlags GetStandardSparseArrayFlags<T>()
-        {
-            var arrayFlags = GetStandardFlags<T>();
-            return new SparseArrayFlags
-            {
-                ArrayFlags = arrayFlags,
-                NzMax = 0,
-            };
         }
     }
 }

@@ -21,13 +21,12 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="Opaque"/> class.
         /// </summary>
-        /// <param name="name">Name of the object.</param>
         /// <param name="typeDescription">Type description.</param>
         /// <param name="className">Class name.</param>
         /// <param name="dimensions">Dimensions of the object.</param>
         /// <param name="rawData">Raw object's data.</param>
-        public Opaque(string name, string typeDescription, string className, int[] dimensions, DataElement rawData)
-            : base(new ArrayFlags(ArrayType.MxOpaque, 0), dimensions, name)
+        public Opaque(string typeDescription, string className, int[] dimensions, DataElement rawData)
+            : base(dimensions)
         {
             TypeDescription = typeDescription ?? throw new ArgumentNullException(nameof(typeDescription));
             ClassName = className ?? throw new ArgumentNullException(nameof(className));

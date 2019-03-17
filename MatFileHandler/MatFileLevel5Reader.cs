@@ -3,9 +3,11 @@ using System.IO;
 
 namespace MatFileHandler
 {
+    /// <summary>
+    /// Reader for MATLAB "Level 5" .mat files.
+    /// </summary>
     internal static class MatFileLevel5Reader
     {
-
         /// <summary>
         /// Read a sequence of raw variables from .mat file.
         /// </summary>
@@ -29,13 +31,13 @@ namespace MatFileHandler
                     var dataElement = dataElementReader.Read(reader);
                     if (position == subsystemDataOffset)
                     {
-                        var subsystemDataElement = dataElement as IArrayOf<byte>;
+                        var subsystemDataElement = dataElement.Element as IArrayOf<byte>;
                         var newSubsystemData = ReadSubsystemData(subsystemDataElement.Data, subsystemData);
                         subsystemData.Set(newSubsystemData);
                     }
                     else
                     {
-                        variables.Add(new RawVariable(position, dataElement));
+                        variables.Add(new RawVariable(position, dataElement.Element, dataElement.Flags, dataElement.Name));
                     }
                 }
                 catch (EndOfStreamException)
@@ -63,18 +65,17 @@ namespace MatFileHandler
         {
             var rawVariables = ReadRawVariables(reader, header.SubsystemDataOffset);
             var variables = new List<IVariable>();
-            foreach (var variable in rawVariables)
+            foreach (var rawVariable in rawVariables)
             {
-                var array = variable.DataElement as MatArray;
-                if (array is null)
+                if (!(rawVariable.DataElement is MatArray array))
                 {
                     continue;
                 }
 
                 variables.Add(new MatVariable(
                     array,
-                    array.Name,
-                    array.Flags.Variable.HasFlag(Variable.IsGlobal)));
+                    rawVariable.Name,
+                    rawVariable.Flags.Variable.HasFlag(Variable.IsGlobal)));
             }
 
             return new MatFile(variables);

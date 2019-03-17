@@ -15,16 +15,10 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatStructureArray"/> class.
         /// </summary>
-        /// <param name="flags">Array properties.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="fields">Array contents.</param>
-        public MatStructureArray(
-            ArrayFlags flags,
-            int[] dimensions,
-            string name,
-            Dictionary<string, List<IArray>> fields)
-            : base(flags, dimensions, name)
+        public MatStructureArray(int[] dimensions, Dictionary<string, List<IArray>> fields)
+            : base(dimensions)
         {
             Fields = fields;
         }

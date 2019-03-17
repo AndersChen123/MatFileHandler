@@ -138,20 +138,4 @@ namespace MatFileHandler
             Variable = variable;
         }
     }
-
-    /// <summary>
-    /// Sparse array properties.
-    /// </summary>
-    internal struct SparseArrayFlags
-    {
-        /// <summary>
-        /// Usual array properties.
-        /// </summary>
-        public ArrayFlags ArrayFlags;
-
-        /// <summary>
-        /// Maximal number of non-zero elements.
-        /// </summary>
-        public uint NzMax;
-    }
 }

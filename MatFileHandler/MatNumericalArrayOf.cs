@@ -17,12 +17,10 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatNumericalArrayOf{T}"/> class.
         /// </summary>
-        /// <param name="flags">Array parameters.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="data">Array contents.</param>
-        public MatNumericalArrayOf(ArrayFlags flags, int[] dimensions, string name, T[] data)
-            : base(flags, dimensions, name)
+        public MatNumericalArrayOf(int[] dimensions, T[] data)
+            : base(dimensions)
         {
             Data = data;
         }

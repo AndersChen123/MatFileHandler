@@ -17,16 +17,22 @@ namespace MatFileHandler
         /// </summary>
         /// <param name="offset">Offset of the variable in the source file.</param>
         /// <param name="dataElement">Data element parsed from the file.</param>
-        internal RawVariable(long offset, DataElement dataElement)
+        internal RawVariable(long offset, DataElement dataElement, ArrayFlags flags, string name)
         {
             Offset = offset;
             DataElement = dataElement ?? throw new ArgumentNullException(nameof(dataElement));
+            Flags = flags;
+            Name = name;
         }
 
         /// <summary>
         /// Gets data element with the variable's contents.
         /// </summary>
         public DataElement DataElement { get; }
+
+        public ArrayFlags Flags { get; }
+
+        public string Name { get; }
 
         /// <summary>
         /// Gets offset of the variable in the .mat file.
