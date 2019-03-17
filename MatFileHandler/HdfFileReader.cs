@@ -6,13 +6,16 @@ using System.Runtime.InteropServices;
 using System.Text;
 using HDF.PInvoke;
 using MatFileHandler.Hdf;
-using Array = MatFileHandler.Hdf.Array;
-using Attribute = MatFileHandler.Hdf.Attribute;
 
 namespace MatFileHandler
 {
     internal class HdfFileReader
     {
+        private const string classAttributeName = "MATLAB_class";
+
+        private const string globalAttributeName = "MATLAB_global";
+
+        private const string sparseAttributeName = "MATLAB_sparse";
         private long fileId;
 
         private List<IVariable> variables;
@@ -25,8 +28,8 @@ namespace MatFileHandler
         internal IMatFile Read()
         {
             variables = new List<IVariable>();
-            H5G.info_t group_info = default(H5G.info_t);
-            var result = H5G.get_info(fileId, ref group_info);
+            var group_info = default(H5G.info_t);
+            H5G.get_info(fileId, ref group_info);
             var numberOfVariables = group_info.nlinks;
 
             ulong idx = 0;
@@ -40,92 +43,8 @@ namespace MatFileHandler
                     VariableIterator,
                     IntPtr.Zero);
             }
+
             return new MatFile(variables);
-        }
-
-        private bool ReadGlobalFlag(long datasetId)
-        {
-            if (H5A.exists_by_name(datasetId, ".", "MATLAB_global") != 0)
-            {
-                using (var globalAttribute = new Attribute(datasetId, "MATLAB_global"))
-                {
-                    using (var h = new MemoryHandle(sizeof(int)))
-                    {
-                        H5A.read(globalAttribute.Id, H5T.NATIVE_INT, h.Handle);
-                        var result = Marshal.ReadInt32(h.Handle);
-                        return result != 0;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        private int VariableIterator(long group, IntPtr name, ref H5L.info_t info, IntPtr op_data)
-        {
-            var variableName = Marshal.PtrToStringAnsi(name);
-            var object_info = default(H5O.info_t);
-            H5O.get_info_by_name(group, variableName, ref object_info);
-            switch (object_info.type)
-            {
-                case H5O.type_t.DATASET:
-                    using (var dataset = new Dataset(group, variableName))
-                    {
-                        var isGlobal = ReadGlobalFlag(dataset.Id);
-                        var value = ReadDataset(dataset.Id);
-                        variables.Add(new MatVariable(value, variableName, isGlobal));
-                    }
-                    break;
-                case H5O.type_t.GROUP:
-                    if (variableName == "#refs#")
-                    {
-                        return 0;
-                    }
-                    using (var subGroup = new Group(group, variableName))
-                    {
-                        var isGlobal = ReadGlobalFlag(subGroup.Id);
-                        var groupValue = ReadGroup(subGroup.Id);
-                        variables.Add(new MatVariable(groupValue, variableName, isGlobal));
-                    }
-                    break;
-                default:
-                    throw new NotImplementedException();
-            }
-            return 0;
-        }
-
-        private static string GetMatlabClassOfDataset(long datasetId)
-        {
-            using (var attribute = new Attribute(datasetId, "MATLAB_class"))
-            {
-                var typeId = H5A.get_type(attribute.Id);
-                var cl = H5T.get_class(typeId);
-                if (cl != H5T.class_t.STRING)
-                {
-                    throw new NotImplementedException();
-                }
-                var classId = H5T.copy(H5T.C_S1);
-                var typeIdSize = (int)H5T.get_size(typeId);
-                H5T.set_size(classId, (IntPtr)typeIdSize);
-                var matlabClassNameBytes = new byte[typeIdSize];
-                using (var buf = new MemoryHandle(typeIdSize))
-                {
-                    H5A.read(attribute.Id, classId, buf.Handle);
-                    Marshal.Copy(buf.Handle, matlabClassNameBytes, 0, typeIdSize);
-                }
-
-                return Encoding.ASCII.GetString(matlabClassNameBytes);
-            }
-        }
-
-        private static int[] GetDimensionsOfDataset(long datasetId)
-        {
-            var spaceId = H5D.get_space(datasetId);
-            var rank = H5S.get_simple_extent_ndims(spaceId);
-            var dims = new ulong[rank];
-            H5S.get_simple_extent_dims(spaceId, dims, null);
-            System.Array.Reverse(dims);
-            return dims.Select(x => (int)x).ToArray();
         }
 
         private static MatlabClass ArrayTypeFromMatlabClassName(string matlabClassName)
@@ -161,173 +80,59 @@ namespace MatFileHandler
                 case "cell":
                     return MatlabClass.MCell;
             }
+
             throw new NotImplementedException();
         }
 
-        private static int GroupFieldNamesIterator(long group, IntPtr name, ref H5L.info_t info, IntPtr data)
-        {
-            var nameString = Marshal.PtrToStringAnsi(name);
-            H5O.info_t objectInfo = default(H5O.info_t);
-            H5O.get_info_by_name(group, nameString, ref objectInfo, H5P.DEFAULT);
-            return 0;
-        }
-
-        private static IArray ReadSparseArray<T>(long groupId, MatlabClass arrayType)
+        private static T[] ConvertDataToProperType<T>(byte[] bytes, MatlabClass arrayType)
             where T : struct
         {
-            using (var sparseAttribute = new Attribute(groupId, "MATLAB_sparse"))
-            {
-                using (var numberOfRowsHandle = new MemoryHandle(sizeof(uint)))
-                {
-                    H5A.read(sparseAttribute.Id, H5T.NATIVE_UINT, numberOfRowsHandle.Handle);
-                    var numberOfRows = Marshal.ReadInt32(numberOfRowsHandle.Handle);
-                    int[] rowIndex;
-                    int[] columnIndex;
-                    using (var irData = new Dataset(groupId, "ir"))
-                    {
-                        var ds = GetDimensionsOfDataset(irData.Id);
-                        var numberOfIr = ds.NumberOfElements();
-                        var irBytes = ReadDataset(irData.Id, H5T.NATIVE_INT, numberOfIr * sizeof(int));
-                        rowIndex = new int[numberOfIr];
-                        Buffer.BlockCopy(irBytes, 0, rowIndex, 0, irBytes.Length);
-                    }
-                    using (var jcData = new Dataset(groupId, "jc"))
-                    {
-                        var ds = GetDimensionsOfDataset(jcData.Id);
-                        var numberOfJc = ds.NumberOfElements();
-                        var jcBytes = ReadDataset(jcData.Id, H5T.NATIVE_INT, numberOfJc * sizeof(int));
-                        columnIndex = new int[numberOfJc];
-                        Buffer.BlockCopy(jcBytes, 0, columnIndex, 0, jcBytes.Length);
-                    }
+            var length = bytes.Length;
+            var arrayElementSize = SizeOfArrayElement(arrayType);
+            var data = new T[length / arrayElementSize];
+            Buffer.BlockCopy(bytes, 0, data, 0, length);
+            return data;
+        }
 
-                    using (var data = new Dataset(groupId, "data"))
-                    {
-                        var ds = GetDimensionsOfDataset(data.Id);
-                        var dims = new int[2];
-                        dims[0] = numberOfRows;
-                        dims[1] = columnIndex.Length - 1;
-                        var dataSize = ds.NumberOfElements() * SizeOfArrayElement(arrayType);
-                        var storageSize = (int)H5D.get_storage_size(data.Id);
-                        var dataSetType = H5D.get_type(data.Id);
-                        var dataSetTypeClass = H5T.get_class(dataSetType);
-                        var isCompound = dataSetTypeClass == H5T.class_t.COMPOUND;
-                        if (isCompound)
-                        {
-                            var (convertedRealData, convertedImaginaryData) = ReadComplexData<T>(data.Id, dataSize, arrayType);
-                            if (arrayType == MatlabClass.MDouble)
-                            {
-                                var complexData =
-                                    (convertedRealData as double[])
-                                    .Zip(convertedImaginaryData as double[], (x, y) => new Complex(x, y))
-                                    .ToArray();
-                                var complexDataDictionary = DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => complexData[j]);
-                                return new SparseArrayOf<Complex>(dims, complexDataDictionary);
-                            }
-                            else
-                            {
-                                var complexData =
-                                    convertedRealData
-                                        .Zip(convertedImaginaryData, (x, y) => new ComplexOf<T>(x, y))
-                                        .ToArray();
-                                var complexDataDictionary = DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => complexData[j]);
-                                return new SparseArrayOf<ComplexOf<T>>(dims, complexDataDictionary);
-                            }
-                        }
-                        if (dataSize != storageSize)
-                        {
-                            throw new Exception("Data size mismatch.");
-                        }
-                        var d = ReadDataset(data.Id, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
-                        var elements = ConvertDataToProperType<T>(d, arrayType);
-                        var dataDictionary = DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
-                        return new SparseArrayOf<T>(dims, dataDictionary);
-                    }
-                }
+        private static int[] GetDimensionsOfDataset(Dataset dataset)
+        {
+            return dataset.GetHdfSpace().GetDimensions();
+        }
+
+        private static string GetMatlabClassFromAttribute(Hdf.Attribute attribute)
+        {
+            var type = attribute.GetHdfType();
+            var cl = type.GetClass();
+            if (cl != Class.String)
+            {
+                throw new NotImplementedException();
+            }
+
+            var typeIdSize = type.GetSize();
+            var copiedType = Hdf.Type.CS1.WithSize(type.GetSize());
+            var matlabClassNameBytes = new byte[typeIdSize];
+            using (var buf = new MemoryHandle(typeIdSize))
+            {
+                attribute.ReadToHandle(buf, copiedType);
+                Marshal.Copy(buf.Handle, matlabClassNameBytes, 0, typeIdSize);
+            }
+
+            return Encoding.ASCII.GetString(matlabClassNameBytes);
+        }
+
+        private static string GetMatlabClassOfDataset(Dataset dataset)
+        {
+            using (var attribute = dataset.GetAttribute(classAttributeName))
+            {
+                return GetMatlabClassFromAttribute(attribute);
             }
         }
 
-        private static IArray ReadGroup(long groupId)
+        private static string GetMatlabClassOfGroup(Group group)
         {
-            var matlabClass = GetMatlabClassOfDataset(groupId);
-            if (matlabClass == "struct")
+            using (var attribute = group.GetAttribute(classAttributeName))
             {
-                return ReadStruct(groupId);
-            }
-
-            if (H5A.exists_by_name(groupId, ".", "MATLAB_sparse") != 0)
-            {
-                var dims = new int[0];
-                var arrayType = ArrayTypeFromMatlabClassName(matlabClass);
-
-                switch (arrayType)
-                {
-                    case MatlabClass.MEmpty:
-                        return Array.Empty();
-                    case MatlabClass.MLogical:
-                        return ReadSparseArray<bool>(groupId, arrayType);
-                    case MatlabClass.MInt8:
-                        return ReadSparseArray<sbyte>(groupId, arrayType);
-                    case MatlabClass.MUInt8:
-                        return ReadSparseArray<byte>(groupId, arrayType);
-                    case MatlabClass.MInt16:
-                        return ReadSparseArray<short>(groupId, arrayType);
-                    case MatlabClass.MUInt16:
-                        return ReadSparseArray<ushort>(groupId, arrayType);
-                    case MatlabClass.MInt32:
-                        return ReadSparseArray<int>(groupId, arrayType);
-                    case MatlabClass.MUInt32:
-                        return ReadSparseArray<uint>(groupId, arrayType);
-                    case MatlabClass.MInt64:
-                        return ReadSparseArray<long>(groupId, arrayType);
-                    case MatlabClass.MUInt64:
-                        return ReadSparseArray<ulong>(groupId, arrayType);
-                    case MatlabClass.MSingle:
-                        return ReadSparseArray<float>(groupId, arrayType);
-                    case MatlabClass.MDouble:
-                        return ReadSparseArray<double>(groupId, arrayType);
-                    default:
-                        throw new NotSupportedException();
-                }
-            }
-
-            throw new NotImplementedException();
-        }
-
-        private static string[] ReadFieldNames(long groupId)
-        {
-            // Try to read fields from MATLAB_fields.
-            using (var attr = new Attribute(groupId, "MATLAB_fields"))
-            {
-                if (attr.Id == 0)
-                {
-                    throw new NotImplementedException();
-                }
-                var spaceId = H5A.get_space(attr.Id);
-                var rank = H5S.get_simple_extent_ndims(spaceId);
-                var dims = new ulong[rank];
-                H5S.get_simple_extent_dims(spaceId, dims, null);
-                System.Array.Reverse(dims);
-                var dimensions = dims.Select(x => (int)x).ToArray();
-                var numberOfFields = dimensions.NumberOfElements();
-
-                var field_id = H5A.get_type(attr.Id);
-
-                var fieldNamePointersSizeInBytes = numberOfFields * Marshal.SizeOf(default(H5T.hvl_t));
-                var fieldNamePointers = new IntPtr[numberOfFields * 2];
-                using (var fieldNamesBuf = new MemoryHandle(fieldNamePointersSizeInBytes))
-                {
-                    H5A.read(attr.Id, field_id, fieldNamesBuf.Handle);
-                    Marshal.Copy(fieldNamesBuf.Handle, fieldNamePointers, 0, numberOfFields * 2);
-                }
-
-                var fieldNames = new string[numberOfFields];
-                for (var i = 0; i < numberOfFields; i++)
-                {
-                    var stringLength = fieldNamePointers[i * 2];
-                    var stringPointer = fieldNamePointers[(i * 2) + 1];
-                    fieldNames[i] = Marshal.PtrToStringAnsi(stringPointer, (int)stringLength);
-                }
-                return fieldNames;
+                return GetMatlabClassFromAttribute(attribute);
             }
         }
 
@@ -338,6 +143,365 @@ namespace MatFileHandler
             return objectInfo.type;
         }
 
+        private static Hdf.Type H5tTypeFromHdfMatlabClass(MatlabClass arrayType)
+        {
+            switch (arrayType)
+            {
+                case MatlabClass.MInt8:
+                    return Hdf.Type.NativeInt8;
+                case MatlabClass.MUInt8:
+                case MatlabClass.MLogical:
+                    return Hdf.Type.NativeUInt8;
+                case MatlabClass.MInt16:
+                    return Hdf.Type.NativeInt16;
+                case MatlabClass.MUInt16:
+                    return Hdf.Type.NativeUInt16;
+                case MatlabClass.MInt32:
+                    return Hdf.Type.NativeInt32;
+                case MatlabClass.MUInt32:
+                    return Hdf.Type.NativeUInt32;
+                case MatlabClass.MInt64:
+                    return Hdf.Type.NativeInt64;
+                case MatlabClass.MUInt64:
+                    return Hdf.Type.NativeUInt64;
+                case MatlabClass.MSingle:
+                    return Hdf.Type.NativeFloat;
+                case MatlabClass.MDouble:
+                    return Hdf.Type.NativeDouble;
+            }
+
+            throw new NotImplementedException();
+        }
+
+        private static IArray ReadCellArray(Dataset dataset, int[] dims)
+        {
+            var numberOfElements = dims.NumberOfElements();
+            var elements = new IArray[numberOfElements];
+            using (var array = new ReferenceArray(dataset, numberOfElements))
+            {
+                var i = 0;
+                foreach (var reference in array)
+                {
+                    elements[i++] = ReadDataset(reference);
+                }
+            }
+
+            return new CellArray(dims, elements);
+        }
+
+        private static IArray ReadCharArray(Dataset dataset, int[] dims)
+        {
+            var storageSize = dataset.GetStorageSize();
+            var data = ReadDataset(dataset, Hdf.Type.NativeUInt16, storageSize);
+            var str = Encoding.Unicode.GetString(data);
+            return new CharArray(dims, str);
+        }
+
+        private static (T[] real, T[] imaginary) ReadComplexData<T>(
+            Dataset dataset,
+            int dataSize,
+            MatlabClass arrayType)
+            where T : struct
+        {
+            var h5Type = H5tTypeFromHdfMatlabClass(arrayType);
+            var h5Size = h5Type.GetSize();
+            var h5tComplexReal = Hdf.Type.CreateCompound(h5Size);
+            h5tComplexReal.InsertField("real", h5Type);
+            var realData = ReadDataset(dataset, h5tComplexReal, dataSize);
+            var h5tComplexImaginary = Hdf.Type.CreateCompound(h5Size);
+            h5tComplexImaginary.InsertField("imag", h5Type);
+            var imaginaryData = ReadDataset(dataset, h5tComplexImaginary, dataSize);
+            var convertedRealData = ConvertDataToProperType<T>(realData, arrayType);
+            var convertedImaginaryData = ConvertDataToProperType<T>(imaginaryData, arrayType);
+            return (convertedRealData, convertedImaginaryData);
+        }
+
+        private static IArray ReadDataset(Dataset dataset)
+        {
+            var dims = GetDimensionsOfDataset(dataset);
+
+            var matlabClass = GetMatlabClassOfDataset(dataset);
+            var arrayType = ArrayTypeFromMatlabClassName(matlabClass);
+
+            switch (arrayType)
+            {
+                case MatlabClass.MEmpty:
+                    return Hdf.Array.Empty();
+                case MatlabClass.MLogical:
+                    return ReadNumericalArray<bool>(dataset, dims, arrayType);
+                case MatlabClass.MChar:
+                    return ReadCharArray(dataset, dims);
+                case MatlabClass.MInt8:
+                    return ReadNumericalArray<sbyte>(dataset, dims, arrayType);
+                case MatlabClass.MUInt8:
+                    return ReadNumericalArray<byte>(dataset, dims, arrayType);
+                case MatlabClass.MInt16:
+                    return ReadNumericalArray<short>(dataset, dims, arrayType);
+                case MatlabClass.MUInt16:
+                    return ReadNumericalArray<ushort>(dataset, dims, arrayType);
+                case MatlabClass.MInt32:
+                    return ReadNumericalArray<int>(dataset, dims, arrayType);
+                case MatlabClass.MUInt32:
+                    return ReadNumericalArray<uint>(dataset, dims, arrayType);
+                case MatlabClass.MInt64:
+                    return ReadNumericalArray<long>(dataset, dims, arrayType);
+                case MatlabClass.MUInt64:
+                    return ReadNumericalArray<ulong>(dataset, dims, arrayType);
+                case MatlabClass.MSingle:
+                    return ReadNumericalArray<float>(dataset, dims, arrayType);
+                case MatlabClass.MDouble:
+                    return ReadNumericalArray<double>(dataset, dims, arrayType);
+                case MatlabClass.MCell:
+                    return ReadCellArray(dataset, dims);
+            }
+
+            throw new NotImplementedException($"Unknown array type: {arrayType}.");
+        }
+
+        private static byte[] ReadDataset(Dataset dataset, Hdf.Type elementType, int dataSize)
+        {
+            var data = new byte[dataSize];
+            using (var dataBuffer = new MemoryHandle(dataSize))
+            {
+                dataset.ReadToHandle(elementType, dataBuffer);
+                Marshal.Copy(dataBuffer.Handle, data, 0, dataSize);
+            }
+
+            return data;
+        }
+
+        private static string[] ReadFieldNames(long groupId)
+        {
+            // Try to read fields from MATLAB_fields.
+            using (var attr = new Hdf.Attribute(groupId, "MATLAB_fields"))
+            {
+                if (attr.Id == 0)
+                {
+                    throw new NotImplementedException();
+                }
+
+                var dimensions = attr.GetSpace().GetDimensions();
+                var numberOfFields = dimensions.NumberOfElements();
+
+                var fieldType = attr.GetHdfType();
+
+                var fieldNamePointersSizeInBytes = numberOfFields * Marshal.SizeOf(default(H5T.hvl_t));
+                var fieldNamePointers = new IntPtr[numberOfFields * 2];
+                using (var fieldNamesBuf = new MemoryHandle(fieldNamePointersSizeInBytes))
+                {
+                    attr.ReadToHandle(fieldNamesBuf, fieldType);
+                    Marshal.Copy(fieldNamesBuf.Handle, fieldNamePointers, 0, numberOfFields * 2);
+                }
+
+                var fieldNames = new string[numberOfFields];
+                for (var i = 0; i < numberOfFields; i++)
+                {
+                    var stringLength = fieldNamePointers[i * 2];
+                    var stringPointer = fieldNamePointers[(i * 2) + 1];
+                    fieldNames[i] = Marshal.PtrToStringAnsi(stringPointer, (int)stringLength);
+                }
+
+                return fieldNames;
+            }
+        }
+
+        private static IArray ReadGroup(Group group)
+        {
+            var matlabClass = GetMatlabClassOfGroup(group);
+            if (matlabClass == "struct")
+            {
+                return ReadStruct(group.Id);
+            }
+
+            if (group.AttributeExists(sparseAttributeName))
+            {
+                var dims = new int[0];
+                var arrayType = ArrayTypeFromMatlabClassName(matlabClass);
+
+                switch (arrayType)
+                {
+                    case MatlabClass.MEmpty:
+                        return Hdf.Array.Empty();
+                    case MatlabClass.MLogical:
+                        return ReadSparseArray<bool>(group.Id, arrayType);
+                    case MatlabClass.MInt8:
+                        return ReadSparseArray<sbyte>(group.Id, arrayType);
+                    case MatlabClass.MUInt8:
+                        return ReadSparseArray<byte>(group.Id, arrayType);
+                    case MatlabClass.MInt16:
+                        return ReadSparseArray<short>(group.Id, arrayType);
+                    case MatlabClass.MUInt16:
+                        return ReadSparseArray<ushort>(group.Id, arrayType);
+                    case MatlabClass.MInt32:
+                        return ReadSparseArray<int>(group.Id, arrayType);
+                    case MatlabClass.MUInt32:
+                        return ReadSparseArray<uint>(group.Id, arrayType);
+                    case MatlabClass.MInt64:
+                        return ReadSparseArray<long>(group.Id, arrayType);
+                    case MatlabClass.MUInt64:
+                        return ReadSparseArray<ulong>(group.Id, arrayType);
+                    case MatlabClass.MSingle:
+                        return ReadSparseArray<float>(group.Id, arrayType);
+                    case MatlabClass.MDouble:
+                        return ReadSparseArray<double>(group.Id, arrayType);
+                    default:
+                        throw new NotSupportedException();
+                }
+            }
+
+            throw new NotImplementedException();
+        }
+
+        private static IEnumerable<ComplexOf<T>> CombineComplexOfData<T>(
+            IEnumerable<T> realData,
+            IEnumerable<T> imaginaryData)
+            where T : struct
+        {
+            return realData.Zip(
+                imaginaryData,
+                (x, y) => new ComplexOf<T>(x, y));
+        }
+
+        private static IEnumerable<Complex> CombineComplexData(
+            IEnumerable<double> realData,
+            IEnumerable<double> imaginaryData)
+        {
+            return realData.Zip(
+                imaginaryData,
+                (x, y) => new Complex(x, y));
+        }
+
+        private static IArray ReadNumericalArray<T>(Dataset dataset, int[] dims, MatlabClass arrayType)
+            where T : struct
+        {
+            var numberOfElements = dims.NumberOfElements();
+            var dataSize = numberOfElements * SizeOfArrayElement(arrayType);
+            var storageSize = dataset.GetStorageSize();
+            var dataSetType = dataset.GetHdfType();
+            var dataSetTypeClass = dataSetType.GetClass();
+            var isCompound = dataSetTypeClass == Class.Compound;
+            if (isCompound)
+            {
+                var (convertedRealData, convertedImaginaryData) = ReadComplexData<T>(dataset, dataSize, arrayType);
+                if (arrayType == MatlabClass.MDouble)
+                {
+                    var complexData =
+                        CombineComplexData(
+                            convertedRealData as double[],
+                            convertedImaginaryData as double[])
+                        .ToArray();
+                    return new NumericalArrayOf<Complex>(dims, complexData);
+                }
+                else
+                {
+                    var complexData =
+                        CombineComplexOfData(
+                            convertedRealData,
+                            convertedImaginaryData)
+                        .ToArray();
+                    return new NumericalArrayOf<ComplexOf<T>>(dims, complexData);
+                }
+            }
+
+            if (dataSize != storageSize)
+            {
+                throw new Exception("Data size mismatch.");
+            }
+
+            var data = ReadDataset(dataset, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
+            var convertedData = ConvertDataToProperType<T>(data, arrayType);
+            return new NumericalArrayOf<T>(dims, convertedData);
+        }
+
+        private static IArray ReadSparseArray<T>(long groupId, MatlabClass arrayType)
+            where T : struct
+        {
+            using (var sparseAttribute = new Hdf.Attribute(groupId, sparseAttributeName))
+            {
+                using (var numberOfRowsHandle = new MemoryHandle(sizeof(uint)))
+                {
+                    sparseAttribute.ReadToHandle(numberOfRowsHandle, Hdf.Type.NativeUInt);
+                    var numberOfRows = Marshal.ReadInt32(numberOfRowsHandle.Handle);
+                    int[] rowIndex;
+                    int[] columnIndex;
+                    using (var irData = new Dataset(groupId, "ir"))
+                    {
+                        var ds = GetDimensionsOfDataset(irData);
+                        var numberOfIr = ds.NumberOfElements();
+                        var irBytes = ReadDataset(irData, Hdf.Type.NativeInt, numberOfIr * sizeof(int));
+                        rowIndex = new int[numberOfIr];
+                        Buffer.BlockCopy(irBytes, 0, rowIndex, 0, irBytes.Length);
+                    }
+
+                    using (var jcData = new Dataset(groupId, "jc"))
+                    {
+                        var ds = GetDimensionsOfDataset(jcData);
+                        var numberOfJc = ds.NumberOfElements();
+                        var jcBytes = ReadDataset(jcData, Hdf.Type.NativeInt, numberOfJc * sizeof(int));
+                        columnIndex = new int[numberOfJc];
+                        Buffer.BlockCopy(jcBytes, 0, columnIndex, 0, jcBytes.Length);
+                    }
+
+                    using (var data = new Dataset(groupId, "data"))
+                    {
+                        var ds = GetDimensionsOfDataset(data);
+                        var dims = new int[2];
+                        dims[0] = numberOfRows;
+                        dims[1] = columnIndex.Length - 1;
+                        var dataSize = ds.NumberOfElements() * SizeOfArrayElement(arrayType);
+                        var storageSize = data.GetStorageSize();
+                        var dataSetType = data.GetHdfType();
+                        var dataSetTypeClass = dataSetType.GetClass();
+                        var isCompound = dataSetTypeClass == Class.Compound;
+                        if (isCompound)
+                        {
+                            var (convertedRealData, convertedImaginaryData) =
+                                ReadComplexData<T>(data, dataSize, arrayType);
+                            if (arrayType == MatlabClass.MDouble)
+                            {
+                                var complexData =
+                                    CombineComplexData(
+                                        convertedRealData as double[],
+                                    convertedImaginaryData as double[])
+                                    .ToArray();
+                                var complexDataDictionary =
+                                    DataExtraction.ConvertMatlabSparseToDictionary(
+                                        rowIndex,
+                                        columnIndex,
+                                        j => complexData[j]);
+                                return new SparseArrayOf<Complex>(dims, complexDataDictionary);
+                            }
+                            else
+                            {
+                                var complexData = 
+                                    CombineComplexOfData<T>(
+                                        convertedRealData,
+                                        convertedImaginaryData)
+                                    .ToArray();
+                                var complexDataDictionary =
+                                    DataExtraction.ConvertMatlabSparseToDictionary(
+                                        rowIndex,
+                                        columnIndex,
+                                        j => complexData[j]);
+                                return new SparseArrayOf<ComplexOf<T>>(dims, complexDataDictionary);
+                            }
+                        }
+
+                        if (dataSize != storageSize)
+                        {
+                            throw new Exception("Data size mismatch.");
+                        }
+
+                        var d = ReadDataset(data, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
+                        var elements = ConvertDataToProperType<T>(d, arrayType);
+                        var dataDictionary =
+                            DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
+                        return new SparseArrayOf<T>(dims, dataDictionary);
+                    }
+                }
+            }
+        }
+
         private static IArray ReadStruct(long groupId)
         {
             var fieldNames = ReadFieldNames(groupId);
@@ -346,16 +510,16 @@ namespace MatFileHandler
             {
                 using (var firstField = new Dataset(groupId, fieldNames[0]))
                 {
-                    var firstFieldTypeId = H5D.get_type(firstField.Id);
-                    if (H5T.get_class(firstFieldTypeId) == H5T.class_t.REFERENCE)
+                    var firstFieldType = firstField.GetHdfType();
+                    if (firstFieldType.GetClass() == Class.Reference)
                     {
-                        if (H5A.exists_by_name(firstField.Id, ".", "MATLAB_class") != 0)
+                        if (firstField.AttributeExists(classAttributeName))
                         {
                             throw new NotImplementedException();
                         }
                         else
                         {
-                            var dimensions = GetDimensionsOfDataset(firstField.Id);
+                            var dimensions = GetDimensionsOfDataset(firstField);
                             var numberOfElements = dimensions.NumberOfElements();
                             var dictionary = new Dictionary<string, List<IArray>>();
                             foreach (var fieldName in fieldNames)
@@ -367,26 +531,22 @@ namespace MatFileHandler
                                     case H5O.type_t.DATASET:
                                         using (var field = new Dataset(groupId, fieldName))
                                         {
-                                            using (var buf = new MemoryHandle(Marshal.SizeOf(default(IntPtr)) * numberOfElements))
+                                            using (var array = new ReferenceArray(field, numberOfElements))
                                             {
-                                                H5D.read(field.Id, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf.Handle);
-                                                for (var i = 0; i < numberOfElements; i++)
+                                                foreach (var reference in array)
                                                 {
-                                                    var fieldDataSet = H5R.dereference(
-                                                        field.Id,
-                                                        H5P.DEFAULT,
-                                                        H5R.type_t.OBJECT,
-                                                        buf.Handle + (i * Marshal.SizeOf(default(IntPtr))));
-                                                    var dataset = ReadDataset(fieldDataSet);
-                                                    dictionary[fieldName].Add(dataset);
+                                                    var value = ReadDataset(reference);
+                                                    dictionary[fieldName].Add(value);
                                                 }
                                             }
                                         }
+
                                         break;
                                     default:
                                         throw new NotImplementedException();
                                 }
                             }
+
                             return new StructureArray(dimensions, dictionary);
                         }
                     }
@@ -400,70 +560,8 @@ namespace MatFileHandler
             {
                 throw new NotImplementedException();
             }
+
             throw new NotImplementedException();
-        }
-
-        private static IArray ReadDataset(long datasetId)
-        {
-            var dims = GetDimensionsOfDataset(datasetId);
-
-            var matlabClass = GetMatlabClassOfDataset(datasetId);
-            var arrayType = ArrayTypeFromMatlabClassName(matlabClass);
-
-            switch (arrayType)
-            {
-                case MatlabClass.MEmpty:
-                    return Array.Empty();
-                case MatlabClass.MLogical:
-                    return ReadNumericalArray<bool>(datasetId, dims, arrayType);
-                case MatlabClass.MChar:
-                    return ReadCharArray(datasetId, dims);
-                case MatlabClass.MInt8:
-                    return ReadNumericalArray<sbyte>(datasetId, dims, arrayType);
-                case MatlabClass.MUInt8:
-                    return ReadNumericalArray<byte>(datasetId, dims, arrayType);
-                case MatlabClass.MInt16:
-                    return ReadNumericalArray<short>(datasetId, dims, arrayType);
-                case MatlabClass.MUInt16:
-                    return ReadNumericalArray<ushort>(datasetId, dims, arrayType);
-                case MatlabClass.MInt32:
-                    return ReadNumericalArray<int>(datasetId, dims, arrayType);
-                case MatlabClass.MUInt32:
-                    return ReadNumericalArray<uint>(datasetId, dims, arrayType);
-                case MatlabClass.MInt64:
-                    return ReadNumericalArray<long>(datasetId, dims, arrayType);
-                case MatlabClass.MUInt64:
-                    return ReadNumericalArray<ulong>(datasetId, dims, arrayType);
-                case MatlabClass.MSingle:
-                    return ReadNumericalArray<float>(datasetId, dims, arrayType);
-                case MatlabClass.MDouble:
-                    return ReadNumericalArray<double>(datasetId, dims, arrayType);
-                case MatlabClass.MCell:
-                    return ReadCellArray(datasetId, dims);
-            }
-            throw new NotImplementedException($"Unknown array type: {arrayType}.");
-        }
-
-        private static IArray ReadCellArray(long datasetId, int[] dims)
-        {
-            var numberOfElements = dims.NumberOfElements();
-            var elements = new IArray[numberOfElements];
-            using (var buf = new MemoryHandle(Marshal.SizeOf(default(IntPtr)) * numberOfElements))
-            {
-                H5D.read(datasetId, H5T.STD_REF_OBJ, H5S.ALL, H5S.ALL, H5P.DEFAULT, buf.Handle);
-                for (var i = 0; i < numberOfElements; i++)
-                {
-                    var fieldDataSet =
-                        H5R.dereference(
-                            datasetId,
-                            H5P.DEFAULT,
-                            H5R.type_t.OBJECT,
-                            buf.Handle + (i * Marshal.SizeOf(default(IntPtr))));
-                    var dataset = ReadDataset(fieldDataSet);
-                    elements[i] = dataset;
-                }
-            }
-            return new CellArray(dims, elements);
         }
 
         private static int SizeOfArrayElement(MatlabClass arrayType)
@@ -490,119 +588,67 @@ namespace MatFileHandler
             throw new NotImplementedException();
         }
 
-        private static long H5tTypeFromHdfMatlabClass(MatlabClass arrayType)
+        private bool ReadGlobalFlag(Group group)
         {
-            switch (arrayType)
+            if (!group.AttributeExists(globalAttributeName))
             {
-                case MatlabClass.MInt8:
-                    return H5T.NATIVE_INT8;
-                case MatlabClass.MUInt8:
-                case MatlabClass.MLogical:
-                    return H5T.NATIVE_UINT8;
-                case MatlabClass.MInt16:
-                    return H5T.NATIVE_INT16;
-                case MatlabClass.MUInt16:
-                    return H5T.NATIVE_UINT16;
-                case MatlabClass.MInt32:
-                    return H5T.NATIVE_INT32;
-                case MatlabClass.MUInt32:
-                    return H5T.NATIVE_UINT32;
-                case MatlabClass.MInt64:
-                    return H5T.NATIVE_INT64;
-                case MatlabClass.MUInt64:
-                    return H5T.NATIVE_UINT64;
-                case MatlabClass.MSingle:
-                    return H5T.NATIVE_FLOAT;
-                case MatlabClass.MDouble:
-                    return H5T.NATIVE_DOUBLE;
+                return false;
             }
-            throw new NotImplementedException();
-        }
 
-        private static T[] ConvertDataToProperType<T>(byte[] bytes, MatlabClass arrayType)
-            where T : struct
-        {
-            var length = bytes.Length;
-            var arrayElementSize = SizeOfArrayElement(arrayType);
-            var data = new T[length / arrayElementSize];
-            Buffer.BlockCopy(bytes, 0, data, 0, length);
-            return data;
-        }
-
-        private static byte[] ReadDataset(long datasetId, long elementType, int dataSize)
-        {
-            var data = new byte[dataSize];
-            using (var dataBuffer = new MemoryHandle(dataSize))
+            using (var globalAttribute = group.GetAttribute(globalAttributeName))
             {
-                H5D.read(datasetId, elementType, H5S.ALL, H5S.ALL, H5P.DEFAULT, dataBuffer.Handle);
-                Marshal.Copy(dataBuffer.Handle, data, 0, dataSize);
+                return globalAttribute.ReadBool();
             }
-            return data;
         }
 
-        private static (T[] real, T[] imaginary) ReadComplexData<T>(
-            long datasetId,
-            int dataSize,
-            MatlabClass arrayType)
-            where T : struct
+        private bool ReadGlobalFlag(Dataset dataset)
         {
-            var h5Type = H5tTypeFromHdfMatlabClass(arrayType);
-            var h5Size = H5T.get_size(h5Type);
-            var h5tComplexReal = H5T.create(H5T.class_t.COMPOUND, h5Size);
-            H5T.insert(h5tComplexReal, "real", IntPtr.Zero, h5Type);
-            var realData = ReadDataset(datasetId, h5tComplexReal, dataSize);
-            var convertedRealData = ConvertDataToProperType<T>(realData, arrayType);
-            var h5tComplexImaginary = H5T.create(H5T.class_t.COMPOUND, h5Size);
-            H5T.insert(h5tComplexImaginary, "imag", IntPtr.Zero, h5Type);
-            var imaginaryData = ReadDataset(datasetId, h5tComplexImaginary, dataSize);
-            var convertedImaginaryData = ConvertDataToProperType<T>(imaginaryData, arrayType);
-            return (convertedRealData, convertedImaginaryData);
-        }
-
-        private static IArray ReadNumericalArray<T>(long datasetId, int[] dims, MatlabClass arrayType)
-            where T : struct
-        {
-            var numberOfElements = dims.NumberOfElements();
-            var dataSize = numberOfElements * SizeOfArrayElement(arrayType);
-            var storageSize = (int)H5D.get_storage_size(datasetId);
-            var dataSetType = H5D.get_type(datasetId);
-            var dataSetTypeClass = H5T.get_class(dataSetType);
-            var isCompound = dataSetTypeClass == H5T.class_t.COMPOUND;
-            if (isCompound)
+            if (!dataset.AttributeExists(globalAttributeName))
             {
-                var (convertedRealData, convertedImaginaryData) = ReadComplexData<T>(datasetId, dataSize, arrayType);
-                if (arrayType == MatlabClass.MDouble)
-                {
-                    var complexData =
-                        (convertedRealData as double[])
-                            .Zip(convertedImaginaryData as double[], (x, y) => new Complex(x, y))
-                            .ToArray();
-                    return new NumericalArrayOf<Complex>(dims, complexData);
-                }
-                else
-                {
-                    var complexData =
-                        convertedRealData
-                            .Zip(convertedImaginaryData, (x, y) => new ComplexOf<T>(x, y))
-                            .ToArray();
-                    return new NumericalArrayOf<ComplexOf<T>>(dims, complexData);
-                }
+                return false;
             }
-            if (dataSize != storageSize)
+
+            using (var globalAttribute = dataset.GetAttribute(globalAttributeName))
             {
-                throw new Exception("Data size mismatch.");
+                return globalAttribute.ReadBool();
             }
-            var data = ReadDataset(datasetId, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
-            var convertedData = ConvertDataToProperType<T>(data, arrayType);
-            return new NumericalArrayOf<T>(dims, convertedData);
         }
 
-        private static IArray ReadCharArray(long datasetId, int[] dims)
+        private int VariableIterator(long group, IntPtr name, ref H5L.info_t info, IntPtr op_data)
         {
-            var storageSize = (int)H5D.get_storage_size(datasetId);
-            var data = ReadDataset(datasetId, H5T.NATIVE_UINT16, storageSize);
-            var str = Encoding.Unicode.GetString(data);
-            return new CharArray(dims, str);
+            var variableName = Marshal.PtrToStringAnsi(name);
+            var object_info = default(H5O.info_t);
+            H5O.get_info_by_name(group, variableName, ref object_info);
+            switch (object_info.type)
+            {
+                case H5O.type_t.DATASET:
+                    using (var dataset = new Dataset(group, variableName))
+                    {
+                        var isGlobal = ReadGlobalFlag(dataset);
+                        var value = ReadDataset(dataset);
+                        variables.Add(new MatVariable(value, variableName, isGlobal));
+                    }
+
+                    break;
+                case H5O.type_t.GROUP:
+                    if (variableName == "#refs#")
+                    {
+                        return 0;
+                    }
+
+                    using (var subGroup = new Group(group, variableName))
+                    {
+                        var isGlobal = ReadGlobalFlag(subGroup);
+                        var groupValue = ReadGroup(subGroup);
+                        variables.Add(new MatVariable(groupValue, variableName, isGlobal));
+                    }
+
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+
+            return 0;
         }
     }
 }

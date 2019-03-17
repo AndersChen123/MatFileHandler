@@ -3,7 +3,7 @@ using HDF.PInvoke;
 
 namespace MatFileHandler.Hdf
 {
-    public struct Group : IDisposable
+    internal struct Group : IDisposable
     {
         public long Id { get; private set; }
 
@@ -19,6 +19,16 @@ namespace MatFileHandler.Hdf
                 H5G.close(Id);
                 Id = -1;
             }
+        }
+
+        public Attribute GetAttribute(string name)
+        {
+            return new Attribute(Id, name);
+        }
+
+        public bool AttributeExists(string name)
+        {
+            return H5A.exists_by_name(Id, ".", name) != 0;
         }
     }
 }
