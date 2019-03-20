@@ -223,7 +223,7 @@ namespace MatFileHandler
                 elements.Add(element);
             }
 
-            return new MatCellArray(flags, dimensions, name, elements);
+            return new MatCellArray(dimensions, elements);
         }
 
         private DataElementWithArrayFlags ContinueReadingOpaque(BinaryReader reader)

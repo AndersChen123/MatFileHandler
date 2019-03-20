@@ -64,7 +64,7 @@ namespace MatFileHandler
         {
             var flags = ConstructArrayFlags(ArrayType.MxCell);
             var elements = Enumerable.Repeat(MatArray.Empty() as IArray, dimensions.NumberOfElements()).ToList();
-            return new MatCellArray(flags, dimensions, string.Empty, elements);
+            return new MatCellArray(dimensions, elements);
         }
 
         /// <summary>

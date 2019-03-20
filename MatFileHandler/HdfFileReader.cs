@@ -186,15 +186,17 @@ namespace MatFileHandler
                 }
             }
 
-            return new CellArray(dims, elements);
+            return new MatCellArray(dims, elements);
         }
 
         private static IArray ReadCharArray(Dataset dataset, int[] dims)
         {
             var storageSize = dataset.GetStorageSize();
             var data = ReadDataset(dataset, Hdf.Type.NativeUInt16, storageSize);
+            var uInt16Data = new ushort[data.Length / sizeof(ushort)];
+            Buffer.BlockCopy(data, 0, uInt16Data, 0, data.Length);
             var str = Encoding.Unicode.GetString(data);
-            return new CharArray(dims, str);
+            return new MatCharArrayOf<ushort>(dims, uInt16Data, str);
         }
 
         private static (T[] real, T[] imaginary) ReadComplexData<T>(
@@ -226,7 +228,7 @@ namespace MatFileHandler
             switch (arrayType)
             {
                 case MatlabClass.MEmpty:
-                    return Hdf.Array.Empty();
+                    return MatArray.Empty();
                 case MatlabClass.MLogical:
                     return ReadNumericalArray<bool>(dataset, dims, arrayType);
                 case MatlabClass.MChar:
@@ -321,7 +323,7 @@ namespace MatFileHandler
                 switch (arrayType)
                 {
                     case MatlabClass.MEmpty:
-                        return Hdf.Array.Empty();
+                        return MatArray.Empty();
                     case MatlabClass.MLogical:
                         return ReadSparseArray<bool>(group.Id, arrayType);
                     case MatlabClass.MInt8:
@@ -390,7 +392,7 @@ namespace MatFileHandler
                             convertedRealData as double[],
                             convertedImaginaryData as double[])
                         .ToArray();
-                    return new NumericalArrayOf<Complex>(dims, complexData);
+                    return new MatNumericalArrayOf<Complex>(dims, complexData);
                 }
                 else
                 {
@@ -399,7 +401,7 @@ namespace MatFileHandler
                             convertedRealData,
                             convertedImaginaryData)
                         .ToArray();
-                    return new NumericalArrayOf<ComplexOf<T>>(dims, complexData);
+                    return new MatNumericalArrayOf<ComplexOf<T>>(dims, complexData);
                 }
             }
 
@@ -410,7 +412,7 @@ namespace MatFileHandler
 
             var data = ReadDataset(dataset, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
             var convertedData = ConvertDataToProperType<T>(data, arrayType);
-            return new NumericalArrayOf<T>(dims, convertedData);
+            return new MatNumericalArrayOf<T>(dims, convertedData);
         }
 
         private static IArray ReadSparseArray<T>(long groupId, MatlabClass arrayType)
@@ -469,7 +471,7 @@ namespace MatFileHandler
                                         rowIndex,
                                         columnIndex,
                                         j => complexData[j]);
-                                return new SparseArrayOf<Complex>(dims, complexDataDictionary);
+                                return new MatSparseArrayOf<Complex>(dims, complexDataDictionary);
                             }
                             else
                             {
@@ -483,7 +485,7 @@ namespace MatFileHandler
                                         rowIndex,
                                         columnIndex,
                                         j => complexData[j]);
-                                return new SparseArrayOf<ComplexOf<T>>(dims, complexDataDictionary);
+                                return new MatSparseArrayOf<ComplexOf<T>>(dims, complexDataDictionary);
                             }
                         }
 
@@ -496,7 +498,7 @@ namespace MatFileHandler
                         var elements = ConvertDataToProperType<T>(d, arrayType);
                         var dataDictionary =
                             DataExtraction.ConvertMatlabSparseToDictionary(rowIndex, columnIndex, j => elements[j]);
-                        return new SparseArrayOf<T>(dims, dataDictionary);
+                        return new MatSparseArrayOf<T>(dims, dataDictionary);
                     }
                 }
             }
@@ -547,7 +549,7 @@ namespace MatFileHandler
                                 }
                             }
 
-                            return new StructureArray(dimensions, dictionary);
+                            return new MatStructureArray(dimensions, dictionary);
                         }
                     }
                     else

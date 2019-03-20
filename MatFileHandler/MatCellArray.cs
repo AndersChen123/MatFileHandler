@@ -13,11 +13,9 @@ namespace MatFileHandler
         /// <summary>
         /// Initializes a new instance of the <see cref="MatCellArray"/> class.
         /// </summary>
-        /// <param name="flags">Array properties.</param>
         /// <param name="dimensions">Dimensions of the array.</param>
-        /// <param name="name">Array name.</param>
         /// <param name="elements">Array elements.</param>
-        public MatCellArray(ArrayFlags flags, int[] dimensions, string name, IEnumerable<IArray> elements)
+        public MatCellArray(int[] dimensions, IEnumerable<IArray> elements)
             : base(dimensions)
         {
             Data = elements.ToArray();

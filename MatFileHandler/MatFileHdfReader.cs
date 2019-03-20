@@ -1,7 +1,7 @@
-﻿using HDF.PInvoke;
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using HDF.PInvoke;
 
 namespace MatFileHandler
 {
