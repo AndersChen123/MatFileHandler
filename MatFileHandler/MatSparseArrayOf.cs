@@ -43,7 +43,7 @@ namespace MatFileHandler
             get
             {
                 var rowAndColumn = GetRowAndColumn(list);
-                return DataDictionary.ContainsKey(rowAndColumn) ? DataDictionary[rowAndColumn] : default(T);
+                return DataDictionary.ContainsKey(rowAndColumn) ? DataDictionary[rowAndColumn] : default;
             }
             set => DataDictionary[GetRowAndColumn(list)] = value;
         }

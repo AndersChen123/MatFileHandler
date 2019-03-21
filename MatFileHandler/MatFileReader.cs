@@ -33,6 +33,11 @@ namespace MatFileHandler
             }
         }
 
+        private static Header ReadHeader(BinaryReader reader)
+        {
+            return Header.Read(reader);
+        }
+
         private IMatFile Read(BinaryReader reader)
         {
             var header = ReadHeader(reader);
@@ -45,11 +50,6 @@ namespace MatFileHandler
                 default:
                     throw new NotSupportedException($"Unknown file format.");
             }
-        }
-
-        private static Header ReadHeader(BinaryReader reader)
-        {
-            return Header.Read(reader);
         }
     }
 }

@@ -1,4 +1,6 @@
-﻿using System;
+﻿// Copyright 2017-2018 Alexander Luzgarev
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -9,29 +11,40 @@ using MatFileHandler.Hdf;
 
 namespace MatFileHandler
 {
+    /// <summary>
+    /// Reader of HDF files containing MATLAB data.
+    /// </summary>
     internal class HdfFileReader
     {
-        private const string classAttributeName = "MATLAB_class";
+        private const string ClassAttributeName = "MATLAB_class";
 
-        private const string globalAttributeName = "MATLAB_global";
+        private const string GlobalAttributeName = "MATLAB_global";
 
-        private const string sparseAttributeName = "MATLAB_sparse";
-        private long fileId;
+        private const string SparseAttributeName = "MATLAB_sparse";
+
+        private readonly long fileId;
 
         private List<IVariable> variables;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HdfFileReader"/> class.
+        /// </summary>
+        /// <param name="fileId">File id to read data from.</param>
         internal HdfFileReader(long fileId)
         {
             this.fileId = fileId;
         }
 
+        /// <summary>
+        /// Read MATLAB data from the HDF file.
+        /// </summary>
+        /// <returns>MATLAB data file contents.</returns>
         internal IMatFile Read()
         {
             variables = new List<IVariable>();
             var group_info = default(H5G.info_t);
             H5G.get_info(fileId, ref group_info);
             var numberOfVariables = group_info.nlinks;
-
             ulong idx = 0;
             while (idx < numberOfVariables)
             {
@@ -117,12 +130,22 @@ namespace MatFileHandler
                 Marshal.Copy(buf.Handle, matlabClassNameBytes, 0, typeIdSize);
             }
 
-            return Encoding.ASCII.GetString(matlabClassNameBytes);
+            var length = typeIdSize;
+            for (var i = 0; i < typeIdSize; i++)
+            {
+                if (matlabClassNameBytes[i] == 0)
+                {
+                    length = i;
+                    break;
+                }
+            }
+
+            return Encoding.ASCII.GetString(matlabClassNameBytes, 0, length);
         }
 
         private static string GetMatlabClassOfDataset(Dataset dataset)
         {
-            using (var attribute = dataset.GetAttribute(classAttributeName))
+            using (var attribute = dataset.GetAttribute(ClassAttributeName))
             {
                 return GetMatlabClassFromAttribute(attribute);
             }
@@ -130,7 +153,7 @@ namespace MatFileHandler
 
         private static string GetMatlabClassOfGroup(Group group)
         {
-            using (var attribute = group.GetAttribute(classAttributeName))
+            using (var attribute = group.GetAttribute(ClassAttributeName))
             {
                 return GetMatlabClassFromAttribute(attribute);
             }
@@ -315,9 +338,8 @@ namespace MatFileHandler
                 return ReadStruct(group.Id);
             }
 
-            if (group.AttributeExists(sparseAttributeName))
+            if (group.AttributeExists(SparseAttributeName))
             {
-                var dims = new int[0];
                 var arrayType = ArrayTypeFromMatlabClassName(matlabClass);
 
                 switch (arrayType)
@@ -378,7 +400,6 @@ namespace MatFileHandler
         {
             var numberOfElements = dims.NumberOfElements();
             var dataSize = numberOfElements * SizeOfArrayElement(arrayType);
-            var storageSize = dataset.GetStorageSize();
             var dataSetType = dataset.GetHdfType();
             var dataSetTypeClass = dataSetType.GetClass();
             var isCompound = dataSetTypeClass == Class.Compound;
@@ -405,11 +426,6 @@ namespace MatFileHandler
                 }
             }
 
-            if (dataSize != storageSize)
-            {
-                throw new Exception("Data size mismatch.");
-            }
-
             var data = ReadDataset(dataset, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
             var convertedData = ConvertDataToProperType<T>(data, arrayType);
             return new MatNumericalArrayOf<T>(dims, convertedData);
@@ -418,7 +434,7 @@ namespace MatFileHandler
         private static IArray ReadSparseArray<T>(long groupId, MatlabClass arrayType)
             where T : struct
         {
-            using (var sparseAttribute = new Hdf.Attribute(groupId, sparseAttributeName))
+            using (var sparseAttribute = new Hdf.Attribute(groupId, SparseAttributeName))
             {
                 using (var numberOfRowsHandle = new MemoryHandle(sizeof(uint)))
                 {
@@ -464,7 +480,7 @@ namespace MatFileHandler
                                 var complexData =
                                     CombineComplexData(
                                         convertedRealData as double[],
-                                    convertedImaginaryData as double[])
+                                        convertedImaginaryData as double[])
                                     .ToArray();
                                 var complexDataDictionary =
                                     DataExtraction.ConvertMatlabSparseToDictionary(
@@ -475,7 +491,7 @@ namespace MatFileHandler
                             }
                             else
                             {
-                                var complexData = 
+                                var complexData =
                                     CombineComplexOfData<T>(
                                         convertedRealData,
                                         convertedImaginaryData)
@@ -487,11 +503,6 @@ namespace MatFileHandler
                                         j => complexData[j]);
                                 return new MatSparseArrayOf<ComplexOf<T>>(dims, complexDataDictionary);
                             }
-                        }
-
-                        if (dataSize != storageSize)
-                        {
-                            throw new Exception("Data size mismatch.");
                         }
 
                         var d = ReadDataset(data, H5tTypeFromHdfMatlabClass(arrayType), dataSize);
@@ -515,7 +526,7 @@ namespace MatFileHandler
                     var firstFieldType = firstField.GetHdfType();
                     if (firstFieldType.GetClass() == Class.Reference)
                     {
-                        if (firstField.AttributeExists(classAttributeName))
+                        if (firstField.AttributeExists(ClassAttributeName))
                         {
                             throw new NotImplementedException();
                         }
@@ -592,12 +603,12 @@ namespace MatFileHandler
 
         private bool ReadGlobalFlag(Group group)
         {
-            if (!group.AttributeExists(globalAttributeName))
+            if (!group.AttributeExists(GlobalAttributeName))
             {
                 return false;
             }
 
-            using (var globalAttribute = group.GetAttribute(globalAttributeName))
+            using (var globalAttribute = group.GetAttribute(GlobalAttributeName))
             {
                 return globalAttribute.ReadBool();
             }
@@ -605,12 +616,12 @@ namespace MatFileHandler
 
         private bool ReadGlobalFlag(Dataset dataset)
         {
-            if (!dataset.AttributeExists(globalAttributeName))
+            if (!dataset.AttributeExists(GlobalAttributeName))
             {
                 return false;
             }
 
-            using (var globalAttribute = dataset.GetAttribute(globalAttributeName))
+            using (var globalAttribute = dataset.GetAttribute(GlobalAttributeName))
             {
                 return globalAttribute.ReadBool();
             }

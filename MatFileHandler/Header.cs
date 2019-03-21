@@ -21,6 +21,9 @@ namespace MatFileHandler
             Version = version;
         }
 
+        /// <summary>
+        /// Gets raw byte contents of the header.
+        /// </summary>
         public byte[] RawBytes { get; }
 
         /// <summary>

@@ -363,6 +363,14 @@ namespace MatFileHandler
                 $"Expected data element that would be convertible to uint64, found {element.GetType()}.");
         }
 
+        /// <summary>
+        /// Convert sparse MATLAB data into dictionary.
+        /// </summary>
+        /// <typeparam name="T">Array element type.</typeparam>
+        /// <param name="rowIndex">Array of row indices.</param>
+        /// <param name="columnIndex">Array of column indices.</param>
+        /// <param name="get">Getter function.</param>
+        /// <returns>Dictionary mapping (row, column) pairs to value.</returns>
         public static Dictionary<(int, int), T> ConvertMatlabSparseToDictionary<T>(
             int[] rowIndex,
             int[] columnIndex,

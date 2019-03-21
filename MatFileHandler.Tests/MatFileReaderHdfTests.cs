@@ -1,10 +1,15 @@
-﻿using System.IO;
+﻿// Copyright 2017-2018 Alexander Luzgarev
+
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using NUnit.Framework;
 
 namespace MatFileHandler.Tests
 {
+    /// <summary>
+    /// Tests of file reading API (HDF cases).
+    /// </summary>
     [TestFixture]
     public class MatFileReaderHdfTests
     {

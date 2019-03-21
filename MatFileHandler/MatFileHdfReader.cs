@@ -1,12 +1,23 @@
-﻿using System;
+﻿// Copyright 2017-2018 Alexander Luzgarev
+
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using HDF.PInvoke;
 
 namespace MatFileHandler
 {
+    /// <summary>
+    /// Reader for MATLAB HDF (-v7.3) files.
+    /// </summary>
     internal static class MatFileHdfReader
     {
+        /// <summary>
+        /// Continue reading MATLAB HDF file after reading the MATLAB header.
+        /// </summary>
+        /// <param name="header">MATLAB header that was read.</param>
+        /// <param name="stream">Stream to read the rest of the file from.</param>
+        /// <returns>MATLAB data file contents.</returns>
         internal static IMatFile ContinueReadingHdfFile(Header header, Stream stream)
         {
             using (var memoryStream = new MemoryStream())

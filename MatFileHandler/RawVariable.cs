@@ -17,6 +17,8 @@ namespace MatFileHandler
         /// </summary>
         /// <param name="offset">Offset of the variable in the source file.</param>
         /// <param name="dataElement">Data element parsed from the file.</param>
+        /// <param name="flags">Array flags.</param>
+        /// <param name="name">Variable name.</param>
         internal RawVariable(long offset, DataElement dataElement, ArrayFlags flags, string name)
         {
             Offset = offset;
@@ -30,8 +32,14 @@ namespace MatFileHandler
         /// </summary>
         public DataElement DataElement { get; }
 
+        /// <summary>
+        /// Gets array flags.
+        /// </summary>
         public ArrayFlags Flags { get; }
 
+        /// <summary>
+        /// Gets variable name.
+        /// </summary>
         public string Name { get; }
 
         /// <summary>

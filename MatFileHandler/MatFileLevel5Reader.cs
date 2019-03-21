@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿// Copyright 2017-2018 Alexander Luzgarev
+
+using System.Collections.Generic;
 using System.IO;
 
 namespace MatFileHandler
@@ -61,6 +63,12 @@ namespace MatFileHandler
             return ReadRawVariables(reader, subsystemDataOffset, subsystemData);
         }
 
+        /// <summary>
+        /// Continue reading old-style (Level 5) MATLAB file.
+        /// </summary>
+        /// <param name="header">Header that was already read.</param>
+        /// <param name="reader">Reader for reading the rest of the file.</param>
+        /// <returns>MATLAB data file contents.</returns>
         internal static IMatFile ContinueReadingLevel5File(Header header, BinaryReader reader)
         {
             var rawVariables = ReadRawVariables(reader, header.SubsystemDataOffset);

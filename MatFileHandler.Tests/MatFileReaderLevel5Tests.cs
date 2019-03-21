@@ -9,7 +9,7 @@ using NUnit.Framework;
 namespace MatFileHandler.Tests
 {
     /// <summary>
-    /// Tests of file reading API.
+    /// Tests of file reading API (Level 5 cases).
     /// </summary>
     [TestFixture]
     public class MatFileReaderLevel5Tests
