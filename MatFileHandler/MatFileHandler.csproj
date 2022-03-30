@@ -20,6 +20,8 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <SignAssembly>True</SignAssembly>
+    <AssemblyOriginatorKeyFile>MatFile.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +44,6 @@
     <PackageReference Include="System.ValueTuple" Version="4.4.0" Condition="'$(TargetFramework)' == 'net461'" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\LICENSE.md" Pack="true" PackagePath=""/>
+    <None Include="..\LICENSE.md" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

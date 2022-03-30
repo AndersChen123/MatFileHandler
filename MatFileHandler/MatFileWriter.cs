@@ -258,6 +258,10 @@ namespace MatFileHandler
                 case IArrayOf<ushort> ushortArray:
                     WriteDataElement(writer, DataType.MiUInt16, ConvertToByteArray(ushortArray.Data));
                     break;
+                case IArrayOf<char> charArray:
+                    var array = charArray.Data.Select(c => (ushort)c).ToArray();
+                    WriteDataElement(writer, DataType.MiUtf16, ConvertToByteArray(array));
+                    break;
                 case IArrayOf<int> intArray:
                     WriteDataElement(writer, DataType.MiInt32, ConvertToByteArray(intArray.Data));
                     break;
@@ -330,6 +334,8 @@ namespace MatFileHandler
                     return new ArrayFlags(ArrayType.MxInt16, variableFlags);
                 case IArrayOf<ushort> _:
                     return new ArrayFlags(ArrayType.MxUInt16, variableFlags);
+                case IArrayOf<char> _:
+                    return new ArrayFlags(ArrayType.MxChar, variableFlags);
                 case IArrayOf<int> _:
                     return new ArrayFlags(ArrayType.MxInt32, variableFlags);
                 case IArrayOf<uint> _:
