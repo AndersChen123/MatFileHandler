@@ -40,5 +40,11 @@ namespace MatFileHandler
         {
             return _variables.TryGetValue(name, out value);
         }
+
+        /// <inheritdoc/>
+        public bool ContainsKey(string key)
+        {
+            return _variables.ContainsKey(key);
+        }
     }
 }

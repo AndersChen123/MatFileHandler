@@ -28,5 +28,12 @@ namespace MatFileHandler
         /// <param name="variable">When this method returns, contains the variable with the specified name, if it is found; otherwise, null.</param>
         /// <returns>True if the file contains a variable with the specified name; otherwise, false.</returns>
         public bool TryGetVariable(string name, out IVariable? variable);
+
+        /// <summary>
+        /// Determines whether the IMatFile contains the specified key.
+        /// </summary>
+        /// <param name="key">The key to locate in the IMatFile</param>
+        /// <returns>true if the IMatFile contains an element with the specified key; otherwise, false.</returns>
+        public bool ContainsKey(string key);
     }
 }
