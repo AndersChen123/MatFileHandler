@@ -260,7 +260,7 @@ namespace MatFileHandler
                     break;
                 case IArrayOf<char> charArray:
                     var array = charArray.Data.Select(c => (ushort)c).ToArray();
-                    WriteDataElement(writer, DataType.MiUtf16, ConvertToByteArray(array));
+                    WriteDataElement(writer, DataType.MiUInt16, ConvertToByteArray(array));
                     break;
                 case IArrayOf<int> intArray:
                     WriteDataElement(writer, DataType.MiInt32, ConvertToByteArray(intArray.Data));
